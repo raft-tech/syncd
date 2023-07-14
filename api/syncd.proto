@@ -16,10 +16,11 @@ message Record {
 }
 
 message RecordStatus {
-  Data id = 1;
-  Data version = 2;
+  string id = 1;
+  string version = 2;
   optional uint32 error = 3;
   optional string error_field = 4;
+  map<string, uint64> sequences = 5;
 }
 
 enum Error {
@@ -34,16 +35,17 @@ enum DataType {
   BOOL = 3; // encoded as bool
   STRING = 4; // encoded as string
   BYTES = 5; // encoded as bytes
+  RECORD = 16;
 }
 
 message Data {
   DataType type = 1;
-  oneof value {
-    uint64 uint = 2;
-    sint64 int = 3;
-    double float = 4;
-    bool bool = 5;
-    string string = 6;
-    bytes bytes = 7;
-  }
+  bool is_list = 2;
+  repeated uint64 uints = 3;
+  repeated sint64 ints = 4;
+  repeated double floats = 5;
+  repeated bool bools = 6;
+  repeated string strings = 7;
+  repeated bytes bytes = 8;
+  repeated Record records = 15;
 }
