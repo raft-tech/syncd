@@ -497,7 +497,7 @@ var _ = Describe("Factory", func() {
 					Name:     "song",
 					Position: 3,
 					Type:     api.StringData{},
-					Nullable: true,
+					Nullable: false,
 				},
 			))
 
@@ -732,7 +732,7 @@ var _ = Describe("Factory", func() {
 					Expect(dperformers).ShouldNot(BeNil())
 				})
 
-				FIt("writes to data to the destination", func(ctx context.Context) {
+				It("writes to data to the destination", func(ctx context.Context) {
 					dst := dperformers.Destination()
 					for s := range dst.Write(ctx, src.Fetch(ctx)) {
 						Expect(s.Error).To(Equal(api.NoRecordError()))
