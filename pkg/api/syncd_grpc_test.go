@@ -53,7 +53,7 @@ func TestPublisher(t *testing.T) {
 	publisher.On("Pull", mock.Anything).Run(func(args mock.Arguments) {
 
 		// Copy all statuses into result
-		server := args.Get(0).(Publisher_PullServer)
+		server := args.Get(0).(Sync_PullServer)
 		result.Metadata = MustGetMetadataFromContext(server.Context())
 		wg := &sync.WaitGroup{}
 		wg.Add(1)
@@ -82,7 +82,7 @@ func TestPublisher(t *testing.T) {
 
 	// .. server
 	server := grpc.NewServer()
-	RegisterPublisherServer(server, publisher)
+	RegisterSyncServer(server, publisher)
 	var target string
 	if tgt, e := Start(server); e == nil {
 		target = tgt
@@ -97,7 +97,7 @@ func TestPublisher(t *testing.T) {
 	} else {
 		t.Fatalf("error dialing server: %v", e)
 	}
-	client := NewPublisherClient(conn)
+	client := NewSyncClient(conn)
 	if pull, err := client.Pull(metadata.AppendToOutgoingContext(context.Background(), "model", "test", "peer", "a-peer")); err == nil {
 
 		r, e := pull.Recv()
@@ -140,9 +140,9 @@ func Start(srv *grpc.Server) (string, error) {
 
 type MockPublisherServer struct {
 	mock.Mock
-	UnimplementedPublisherServer
+	UnimplementedSyncServer
 }
 
-func (m *MockPublisherServer) Pull(server Publisher_PullServer) error {
+func (m *MockPublisherServer) Pull(server Sync_PullServer) error {
 	return m.MethodCalled("Pull", server).Error(0)
 }

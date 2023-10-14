@@ -4,6 +4,8 @@ import (
 	"errors"
 )
 
+const API_VERSION uint32 = 1
+
 var (
 	dataTypeMismatchError = errors.New("data type mismatch")
 )
@@ -13,6 +15,12 @@ const (
 	localRecordError
 	remoteRecordError
 )
+
+func CheckInfo() *Info {
+	return &Info{
+		ApiVersion: API_VERSION,
+	}
+}
 
 func NoRecordError() *uint32 {
 	v := nilRecordError
