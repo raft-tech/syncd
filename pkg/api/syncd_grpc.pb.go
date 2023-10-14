@@ -18,45 +18,56 @@ import (
 // Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
-// ConsumerClient is the client API for Consumer service.
+// SyncClient is the client API for Sync service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type ConsumerClient interface {
-	Push(ctx context.Context, opts ...grpc.CallOption) (Consumer_PushClient, error)
+type SyncClient interface {
+	Check(ctx context.Context, in *Info, opts ...grpc.CallOption) (*Info, error)
+	Push(ctx context.Context, opts ...grpc.CallOption) (Sync_PushClient, error)
+	Pull(ctx context.Context, opts ...grpc.CallOption) (Sync_PullClient, error)
 }
 
-type consumerClient struct {
+type syncClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewConsumerClient(cc grpc.ClientConnInterface) ConsumerClient {
-	return &consumerClient{cc}
+func NewSyncClient(cc grpc.ClientConnInterface) SyncClient {
+	return &syncClient{cc}
 }
 
-func (c *consumerClient) Push(ctx context.Context, opts ...grpc.CallOption) (Consumer_PushClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Consumer_ServiceDesc.Streams[0], "/syncd.Consumer/Push", opts...)
+func (c *syncClient) Check(ctx context.Context, in *Info, opts ...grpc.CallOption) (*Info, error) {
+	out := new(Info)
+	err := c.cc.Invoke(ctx, "/syncd.Sync/Check", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &consumerPushClient{stream}
+	return out, nil
+}
+
+func (c *syncClient) Push(ctx context.Context, opts ...grpc.CallOption) (Sync_PushClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Sync_ServiceDesc.Streams[0], "/syncd.Sync/Push", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &syncPushClient{stream}
 	return x, nil
 }
 
-type Consumer_PushClient interface {
+type Sync_PushClient interface {
 	Send(*Record) error
 	Recv() (*RecordStatus, error)
 	grpc.ClientStream
 }
 
-type consumerPushClient struct {
+type syncPushClient struct {
 	grpc.ClientStream
 }
 
-func (x *consumerPushClient) Send(m *Record) error {
+func (x *syncPushClient) Send(m *Record) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *consumerPushClient) Recv() (*RecordStatus, error) {
+func (x *syncPushClient) Recv() (*RecordStatus, error) {
 	m := new(RecordStatus)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -64,53 +75,110 @@ func (x *consumerPushClient) Recv() (*RecordStatus, error) {
 	return m, nil
 }
 
-// ConsumerServer is the server API for Consumer service.
-// All implementations must embed UnimplementedConsumerServer
+func (c *syncClient) Pull(ctx context.Context, opts ...grpc.CallOption) (Sync_PullClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Sync_ServiceDesc.Streams[1], "/syncd.Sync/Pull", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &syncPullClient{stream}
+	return x, nil
+}
+
+type Sync_PullClient interface {
+	Send(*RecordStatus) error
+	Recv() (*Record, error)
+	grpc.ClientStream
+}
+
+type syncPullClient struct {
+	grpc.ClientStream
+}
+
+func (x *syncPullClient) Send(m *RecordStatus) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *syncPullClient) Recv() (*Record, error) {
+	m := new(Record)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// SyncServer is the server API for Sync service.
+// All implementations must embed UnimplementedSyncServer
 // for forward compatibility
-type ConsumerServer interface {
-	Push(Consumer_PushServer) error
-	mustEmbedUnimplementedConsumerServer()
+type SyncServer interface {
+	Check(context.Context, *Info) (*Info, error)
+	Push(Sync_PushServer) error
+	Pull(Sync_PullServer) error
+	mustEmbedUnimplementedSyncServer()
 }
 
-// UnimplementedConsumerServer must be embedded to have forward compatible implementations.
-type UnimplementedConsumerServer struct {
+// UnimplementedSyncServer must be embedded to have forward compatible implementations.
+type UnimplementedSyncServer struct {
 }
 
-func (UnimplementedConsumerServer) Push(Consumer_PushServer) error {
+func (UnimplementedSyncServer) Check(context.Context, *Info) (*Info, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Check not implemented")
+}
+func (UnimplementedSyncServer) Push(Sync_PushServer) error {
 	return status.Errorf(codes.Unimplemented, "method Push not implemented")
 }
-func (UnimplementedConsumerServer) mustEmbedUnimplementedConsumerServer() {}
+func (UnimplementedSyncServer) Pull(Sync_PullServer) error {
+	return status.Errorf(codes.Unimplemented, "method Pull not implemented")
+}
+func (UnimplementedSyncServer) mustEmbedUnimplementedSyncServer() {}
 
-// UnsafeConsumerServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to ConsumerServer will
+// UnsafeSyncServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to SyncServer will
 // result in compilation errors.
-type UnsafeConsumerServer interface {
-	mustEmbedUnimplementedConsumerServer()
+type UnsafeSyncServer interface {
+	mustEmbedUnimplementedSyncServer()
 }
 
-func RegisterConsumerServer(s grpc.ServiceRegistrar, srv ConsumerServer) {
-	s.RegisterService(&Consumer_ServiceDesc, srv)
+func RegisterSyncServer(s grpc.ServiceRegistrar, srv SyncServer) {
+	s.RegisterService(&Sync_ServiceDesc, srv)
 }
 
-func _Consumer_Push_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ConsumerServer).Push(&consumerPushServer{stream})
+func _Sync_Check_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Info)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SyncServer).Check(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/syncd.Sync/Check",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SyncServer).Check(ctx, req.(*Info))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-type Consumer_PushServer interface {
+func _Sync_Push_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SyncServer).Push(&syncPushServer{stream})
+}
+
+type Sync_PushServer interface {
 	Send(*RecordStatus) error
 	Recv() (*Record, error)
 	grpc.ServerStream
 }
 
-type consumerPushServer struct {
+type syncPushServer struct {
 	grpc.ServerStream
 }
 
-func (x *consumerPushServer) Send(m *RecordStatus) error {
+func (x *syncPushServer) Send(m *RecordStatus) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *consumerPushServer) Recv() (*Record, error) {
+func (x *syncPushServer) Recv() (*Record, error) {
 	m := new(Record)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -118,135 +186,54 @@ func (x *consumerPushServer) Recv() (*Record, error) {
 	return m, nil
 }
 
-// Consumer_ServiceDesc is the grpc.ServiceDesc for Consumer service.
+func _Sync_Pull_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SyncServer).Pull(&syncPullServer{stream})
+}
+
+type Sync_PullServer interface {
+	Send(*Record) error
+	Recv() (*RecordStatus, error)
+	grpc.ServerStream
+}
+
+type syncPullServer struct {
+	grpc.ServerStream
+}
+
+func (x *syncPullServer) Send(m *Record) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *syncPullServer) Recv() (*RecordStatus, error) {
+	m := new(RecordStatus)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// Sync_ServiceDesc is the grpc.ServiceDesc for Sync service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var Consumer_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "syncd.Consumer",
-	HandlerType: (*ConsumerServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+var Sync_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "syncd.Sync",
+	HandlerType: (*SyncServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Check",
+			Handler:    _Sync_Check_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Push",
-			Handler:       _Consumer_Push_Handler,
+			Handler:       _Sync_Push_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
-	},
-	Metadata: "api/syncd.proto",
-}
-
-// PublisherClient is the client API for Publisher service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type PublisherClient interface {
-	Pull(ctx context.Context, opts ...grpc.CallOption) (Publisher_PullClient, error)
-}
-
-type publisherClient struct {
-	cc grpc.ClientConnInterface
-}
-
-func NewPublisherClient(cc grpc.ClientConnInterface) PublisherClient {
-	return &publisherClient{cc}
-}
-
-func (c *publisherClient) Pull(ctx context.Context, opts ...grpc.CallOption) (Publisher_PullClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Publisher_ServiceDesc.Streams[0], "/syncd.Publisher/Pull", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &publisherPullClient{stream}
-	return x, nil
-}
-
-type Publisher_PullClient interface {
-	Send(*RecordStatus) error
-	Recv() (*Record, error)
-	grpc.ClientStream
-}
-
-type publisherPullClient struct {
-	grpc.ClientStream
-}
-
-func (x *publisherPullClient) Send(m *RecordStatus) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *publisherPullClient) Recv() (*Record, error) {
-	m := new(Record)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// PublisherServer is the server API for Publisher service.
-// All implementations must embed UnimplementedPublisherServer
-// for forward compatibility
-type PublisherServer interface {
-	Pull(Publisher_PullServer) error
-	mustEmbedUnimplementedPublisherServer()
-}
-
-// UnimplementedPublisherServer must be embedded to have forward compatible implementations.
-type UnimplementedPublisherServer struct {
-}
-
-func (UnimplementedPublisherServer) Pull(Publisher_PullServer) error {
-	return status.Errorf(codes.Unimplemented, "method Pull not implemented")
-}
-func (UnimplementedPublisherServer) mustEmbedUnimplementedPublisherServer() {}
-
-// UnsafePublisherServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to PublisherServer will
-// result in compilation errors.
-type UnsafePublisherServer interface {
-	mustEmbedUnimplementedPublisherServer()
-}
-
-func RegisterPublisherServer(s grpc.ServiceRegistrar, srv PublisherServer) {
-	s.RegisterService(&Publisher_ServiceDesc, srv)
-}
-
-func _Publisher_Pull_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(PublisherServer).Pull(&publisherPullServer{stream})
-}
-
-type Publisher_PullServer interface {
-	Send(*Record) error
-	Recv() (*RecordStatus, error)
-	grpc.ServerStream
-}
-
-type publisherPullServer struct {
-	grpc.ServerStream
-}
-
-func (x *publisherPullServer) Send(m *Record) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *publisherPullServer) Recv() (*RecordStatus, error) {
-	m := new(RecordStatus)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// Publisher_ServiceDesc is the grpc.ServiceDesc for Publisher service.
-// It's only intended for direct use with grpc.RegisterService,
-// and not to be introspected or modified (even as a copy)
-var Publisher_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "syncd.Publisher",
-	HandlerType: (*PublisherServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Pull",
-			Handler:       _Publisher_Pull_Handler,
+			Handler:       _Sync_Pull_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

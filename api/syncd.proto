@@ -3,12 +3,14 @@ package syncd;
 
 option go_package = "github.com/raft-tech/syncd/pkg/api";
 
-service Consumer {
+service Sync {
+  rpc Check (Info) returns (Info);
   rpc Push (stream Record) returns (stream RecordStatus);
+  rpc Pull (stream RecordStatus) returns (stream Record);
 }
 
-service Publisher {
-  rpc Pull (stream RecordStatus) returns (stream Record);
+message Info {
+  uint32 api_version = 1;
 }
 
 message Record {
