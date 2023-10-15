@@ -24,7 +24,8 @@ const _ = grpc.SupportPackageIsVersion7
 type SyncClient interface {
 	Check(ctx context.Context, in *Info, opts ...grpc.CallOption) (*Info, error)
 	Push(ctx context.Context, opts ...grpc.CallOption) (Sync_PushClient, error)
-	Pull(ctx context.Context, opts ...grpc.CallOption) (Sync_PullClient, error)
+	Pull(ctx context.Context, in *PullRequest, opts ...grpc.CallOption) (Sync_PullClient, error)
+	Acknowledge(ctx context.Context, opts ...grpc.CallOption) (Sync_AcknowledgeClient, error)
 }
 
 type syncClient struct {
@@ -75,17 +76,22 @@ func (x *syncPushClient) Recv() (*RecordStatus, error) {
 	return m, nil
 }
 
-func (c *syncClient) Pull(ctx context.Context, opts ...grpc.CallOption) (Sync_PullClient, error) {
+func (c *syncClient) Pull(ctx context.Context, in *PullRequest, opts ...grpc.CallOption) (Sync_PullClient, error) {
 	stream, err := c.cc.NewStream(ctx, &Sync_ServiceDesc.Streams[1], "/syncd.Sync/Pull", opts...)
 	if err != nil {
 		return nil, err
 	}
 	x := &syncPullClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
 	return x, nil
 }
 
 type Sync_PullClient interface {
-	Send(*RecordStatus) error
 	Recv() (*Record, error)
 	grpc.ClientStream
 }
@@ -94,12 +100,42 @@ type syncPullClient struct {
 	grpc.ClientStream
 }
 
-func (x *syncPullClient) Send(m *RecordStatus) error {
+func (x *syncPullClient) Recv() (*Record, error) {
+	m := new(Record)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *syncClient) Acknowledge(ctx context.Context, opts ...grpc.CallOption) (Sync_AcknowledgeClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Sync_ServiceDesc.Streams[2], "/syncd.Sync/Acknowledge", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &syncAcknowledgeClient{stream}
+	return x, nil
+}
+
+type Sync_AcknowledgeClient interface {
+	Send(*RecordStatus) error
+	CloseAndRecv() (*AcknowledgeResponse, error)
+	grpc.ClientStream
+}
+
+type syncAcknowledgeClient struct {
+	grpc.ClientStream
+}
+
+func (x *syncAcknowledgeClient) Send(m *RecordStatus) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *syncPullClient) Recv() (*Record, error) {
-	m := new(Record)
+func (x *syncAcknowledgeClient) CloseAndRecv() (*AcknowledgeResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(AcknowledgeResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -112,7 +148,8 @@ func (x *syncPullClient) Recv() (*Record, error) {
 type SyncServer interface {
 	Check(context.Context, *Info) (*Info, error)
 	Push(Sync_PushServer) error
-	Pull(Sync_PullServer) error
+	Pull(*PullRequest, Sync_PullServer) error
+	Acknowledge(Sync_AcknowledgeServer) error
 	mustEmbedUnimplementedSyncServer()
 }
 
@@ -126,8 +163,11 @@ func (UnimplementedSyncServer) Check(context.Context, *Info) (*Info, error) {
 func (UnimplementedSyncServer) Push(Sync_PushServer) error {
 	return status.Errorf(codes.Unimplemented, "method Push not implemented")
 }
-func (UnimplementedSyncServer) Pull(Sync_PullServer) error {
+func (UnimplementedSyncServer) Pull(*PullRequest, Sync_PullServer) error {
 	return status.Errorf(codes.Unimplemented, "method Pull not implemented")
+}
+func (UnimplementedSyncServer) Acknowledge(Sync_AcknowledgeServer) error {
+	return status.Errorf(codes.Unimplemented, "method Acknowledge not implemented")
 }
 func (UnimplementedSyncServer) mustEmbedUnimplementedSyncServer() {}
 
@@ -187,12 +227,15 @@ func (x *syncPushServer) Recv() (*Record, error) {
 }
 
 func _Sync_Pull_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(SyncServer).Pull(&syncPullServer{stream})
+	m := new(PullRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SyncServer).Pull(m, &syncPullServer{stream})
 }
 
 type Sync_PullServer interface {
 	Send(*Record) error
-	Recv() (*RecordStatus, error)
 	grpc.ServerStream
 }
 
@@ -204,7 +247,25 @@ func (x *syncPullServer) Send(m *Record) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *syncPullServer) Recv() (*RecordStatus, error) {
+func _Sync_Acknowledge_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SyncServer).Acknowledge(&syncAcknowledgeServer{stream})
+}
+
+type Sync_AcknowledgeServer interface {
+	SendAndClose(*AcknowledgeResponse) error
+	Recv() (*RecordStatus, error)
+	grpc.ServerStream
+}
+
+type syncAcknowledgeServer struct {
+	grpc.ServerStream
+}
+
+func (x *syncAcknowledgeServer) SendAndClose(m *AcknowledgeResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *syncAcknowledgeServer) Recv() (*RecordStatus, error) {
 	m := new(RecordStatus)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -235,6 +296,10 @@ var Sync_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Pull",
 			Handler:       _Sync_Pull_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "Acknowledge",
+			Handler:       _Sync_Acknowledge_Handler,
 			ClientStreams: true,
 		},
 	},

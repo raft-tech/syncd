@@ -113,6 +113,7 @@ func (c *client) Push(ctx context.Context, model string, from graph.Source, as s
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for done := false; !done; {
 			if status, err := push.Recv(); err == nil {
 				if err = from.SetStatus(ctx, status); err != nil {
@@ -181,93 +182,93 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 	logger := log.FromContext(ctx).With(zap.String("peer", c.serverAddress), zap.String("as", as), zap.String("call", "pull"))
 	logger.Debug("initiating pull request")
 	var pull api.Sync_PullClient
-	if pc, err := c.sync.Pull(metadata.AppendToOutgoingContext(ctx, "peer", as, "model", model)); err == nil {
+	if pc, err := c.sync.Pull(metadata.AppendToOutgoingContext(ctx, "peer", as, "model", model), &api.PullRequest{}); err == nil {
 		pull = pc
 		logger.Info("ready to pull")
 	} else {
 		return parseError(logger, err)
 	}
 
+	// set up to acknowledge
+	var ack api.Sync_AcknowledgeClient
+	if ac, err := c.sync.Acknowledge(metadata.AppendToOutgoingContext(ctx, "peer", as, "model", model)); err == nil {
+		ack = ac
+		defer func() {
+			if e := ac.CloseSend(); e != nil {
+				logger.Error("error closing acknowledge send channel", zap.Error(e))
+			}
+		}()
+	} else {
+		return parseError(logger, err)
+	}
+
 	// Set up record and status channels
+
+	// Send received records to destination
 	records := make(chan *api.Record)
-	defer func() {
-		if records != nil {
-			close(records)
+	go func(dst chan<- *api.Record) {
+		defer close(records)
+		for done := false; !done; {
+			logger.Debug("awaiting new record")
+			rec, err := pull.Recv()
+			if err == nil {
+				logger.Debug("record received from peer")
+				select {
+				case records <- rec:
+					rcount++
+					logger.Debug("record sent to destination")
+				case <-ctx.Done():
+					logger.Info("context canceled")
+					done = true
+				}
+			} else {
+				done = true
+				switch {
+				case errors.Is(err, io.EOF):
+					logger.Debug("all records received")
+				case errors.Is(err, context.Canceled):
+					fallthrough
+				case errors.Is(err, context.DeadlineExceeded):
+					logger.Info("context canceled while receiving")
+				default:
+					logger.Error("error receiving records", zap.Error(err))
+				}
+			}
 		}
-	}()
+	}(records)
 	statuses := to.Write(ctx, records)
 
-	// send status updates asynchronously
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func(src <-chan *api.RecordStatus) {
-		for done := false; !done; {
-			select {
-			case s, ok := <-src:
-				if ok {
-					logger := logger.With(zap.String("id", s.Id), zap.String("version", s.Version))
-					logger.Debug("sending status")
-					if err := pull.Send(s); err == nil {
-						scount++
-						logger.Debug("status sent")
-					} else {
-						logger.Error("error sending record status", zap.Error(err))
-					}
-				} else {
-					done = true
-					logger.Debug("completed send")
-				}
-			case <-ctx.Done():
-				logger.Info("context canceled while sending")
-				done = true
-				for range src {
-					_ = <-src
-				}
-			}
-		}
-		logger.Debug("closing send channel")
-		if err := pull.CloseSend(); err == nil {
-			logger.Debug("send channel closed")
-		} else {
-			logger.Error("error closing send channel", zap.Error(err))
-		}
-		wg.Done()
-	}(statuses)
-
-	// receive records
+	// Acknowledge record statuses
 	for done := false; !done; {
-		logger.Debug("awaiting new record")
-		rec, err := pull.Recv()
-		if err == nil {
-			logger.Debug("record received from peer")
-			select {
-			case records <- rec:
-				rcount++
-				logger.Debug("record sent to destination")
-			case <-ctx.Done():
-				logger.Info("context canceled")
+		select {
+		case s, ok := <-statuses:
+			if ok {
+				logger := logger.With(zap.String("id", s.Id), zap.String("version", s.Version))
+				logger.Debug("sending status")
+				if err := ack.Send(s); err == nil {
+					scount++
+					logger.Debug("status sent")
+				} else {
+					logger.Error("error sending record status", zap.Error(err))
+				}
+			} else {
 				done = true
+				logger.Debug("completed send")
 			}
-		} else {
+		case <-ctx.Done():
+			logger.Info("context canceled while sending acks")
 			done = true
-			switch {
-			case errors.Is(err, io.EOF):
-				logger.Debug("all records received")
-			case errors.Is(err, context.Canceled):
-				fallthrough
-			case errors.Is(err, context.DeadlineExceeded):
-				logger.Info("context canceled while receiving")
-			default:
-				logger.Error("error receiving records", zap.Error(err))
+			for range statuses {
+				_ = <-statuses
 			}
 		}
 	}
-	close(records)
-	records = nil
-
-	logger.Debug("waiting for send to complete")
-	wg.Wait()
-	logger.Debug("pull completed", zap.Int("recordsReceived", rcount), zap.Int("statusesSent", scount))
+	logger.Debug("closing ack channel")
+	if err := ack.CloseSend(); err == nil {
+		logger.Debug("ack channel closed")
+	} else {
+		logger.Error("error closing ack channel", zap.Error(err))
+	}
 
 	return to.Error()
 }

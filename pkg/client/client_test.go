@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"context"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -16,10 +17,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -90,9 +89,133 @@ var _ = Describe("Client", func() {
 			Expect(syncd.Check(log.NewContext(ctx, logger), as)).To(And(BeTrue()))
 		})
 
+		It("Pushes", func(ctx context.Context) {
+
+			peer.On("Push", mock.Anything).Run(func(args mock.Arguments) {
+				defer GinkgoRecover()
+
+				logger := logger.With(zap.String("role", "server"))
+				server := args.Get(0).(api.Sync_PushServer)
+				ctx := server.Context()
+
+				var client, model string
+				if md, ok := metadata.FromIncomingContext(ctx); ok {
+					if s := md.Get("peer"); len(s) == 1 {
+						client = s[0]
+					}
+					if s := md.Get("model"); len(s) == 1 {
+						model = s[0]
+					}
+				}
+				Expect(client).To(Equal(as))
+				Expect(model).To(Equal("data"))
+
+				for done := false; !done; {
+					logger.Debug("waiting on client data")
+					if rec, err := server.Recv(); err == nil {
+						logger := logger.With(zap.String("id", rec.Fields["id"].Strings[0]))
+						logger.Info("received record")
+						Expect(server.Send(&api.RecordStatus{
+							Id:      rec.Fields["id"].Strings[0],
+							Version: rec.Fields["version"].Strings[0],
+							Error:   api.NoRecordError(),
+						})).To(Succeed())
+					} else {
+						Expect(err).To(MatchError(io.EOF))
+						done = true
+					}
+				}
+
+			}).Return(nil)
+
+			data := []*api.Record{
+				{
+					Fields: map[string]*api.Data{
+						"id":      api.StringData{}.From("1"),
+						"name":    api.StringData{}.From("John Mayer"),
+						"version": api.StringData{}.From("a"),
+					},
+				},
+				{
+					Fields: map[string]*api.Data{
+						"id":      api.StringData{}.From("2"),
+						"name":    api.StringData{}.From("Pino Palladino"),
+						"version": api.StringData{}.From("b"),
+					},
+				},
+				{
+					Fields: map[string]*api.Data{
+						"id":      api.StringData{}.From("3"),
+						"name":    api.StringData{}.From("Steve Jordan"),
+						"version": api.StringData{}.From("c"),
+					},
+				},
+			}
+
+			records := make(chan *api.Record)
+			var recordsOut <-chan *api.Record = records
+			from := &From{}
+			from.On("Fetch", mock.Anything).Run(func(args mock.Arguments) {
+				defer GinkgoRecover()
+				ctx := args.Get(0).(context.Context)
+				go func(to chan<- *api.Record) {
+					defer GinkgoRecover()
+					defer close(records)
+					for i := range data {
+						select {
+						case to <- data[i]:
+						case <-ctx.Done():
+							break
+						}
+					}
+				}(records)
+			}).Return(recordsOut)
+
+			from.On("Error").Return(nil)
+
+			for i := range data {
+				match := func(record *api.Record) func(recordStatus []*api.RecordStatus) bool {
+					matcher := func(recordStatus []*api.RecordStatus) bool {
+						return len(recordStatus) == 1 &&
+							recordStatus[0].Id == record.Fields["id"].Strings[0] &&
+							recordStatus[0].Version == record.Fields["version"].Strings[0] &&
+							*recordStatus[0].Error == 0
+					}
+					return matcher
+				}
+				from.On("SetStatus", mock.Anything, mock.MatchedBy(match(data[i]))).Once().Return(nil)
+			}
+
+			Expect(syncd.Push(log.NewContext(ctx, logger.With(zap.String("role", "client"))), "data", from, as)).To(Succeed())
+			from.AssertExpectations(GinkgoT())
+		}, SpecTimeout(500*time.Millisecond))
+
 		It("Pulls", func(ctx context.Context) {
 
-			wg := sync.WaitGroup{}
+			data := []*api.Record{
+				{
+					Fields: map[string]*api.Data{
+						"id":      api.StringData{}.From("1"),
+						"name":    api.StringData{}.From("John Mayer"),
+						"version": api.StringData{}.From("a"),
+					},
+				},
+				{
+					Fields: map[string]*api.Data{
+						"id":      api.StringData{}.From("2"),
+						"name":    api.StringData{}.From("Pino Palladino"),
+						"version": api.StringData{}.From("b"),
+					},
+				},
+				{
+					Fields: map[string]*api.Data{
+						"id":      api.StringData{}.From("3"),
+						"name":    api.StringData{}.From("Steve Jordan"),
+						"version": api.StringData{}.From("c"),
+					},
+				},
+			}
+
 			peer.On("Pull", mock.Anything).Run(func(args mock.Arguments) {
 
 				defer GinkgoRecover()
@@ -113,44 +236,36 @@ var _ = Describe("Client", func() {
 				Expect(client).To(Equal(as))
 				Expect(model).To(Equal("data"))
 
-				data := []*api.Record{
-					{
-						Fields: map[string]*api.Data{
-							"id":      api.StringData{}.From("1"),
-							"name":    api.StringData{}.From("John Mayer"),
-							"version": api.StringData{}.From("a"),
-						},
-					},
-					{
-						Fields: map[string]*api.Data{
-							"id":      api.StringData{}.From("2"),
-							"name":    api.StringData{}.From("Pino Palladino"),
-							"version": api.StringData{}.From("b"),
-						},
-					},
-					{
-						Fields: map[string]*api.Data{
-							"id":      api.StringData{}.From("3"),
-							"name":    api.StringData{}.From("Steve Jordan"),
-							"version": api.StringData{}.From("c"),
-						},
-					},
-				}
-
 				// Send Data
-				wg.Add(1)
-				go func() {
-					defer GinkgoRecover()
-					defer wg.Done()
-					logger.Debug("starting to send data")
-					for i := range data {
-						logger := logger.With(zap.String("id", data[i].Fields["id"].Strings[0]))
-						logger.Debug("sending data")
-						Expect(server.Send(data[i])).To(Succeed())
-						logger.Info("sent data")
+				logger.Debug("starting to send data")
+				for i := range data {
+					logger := logger.With(zap.String("id", data[i].Fields["id"].Strings[0]))
+					logger.Debug("sending data")
+					Expect(server.Send(data[i])).To(Succeed())
+					logger.Info("sent data")
+				}
+				logger.Info("finished sending data")
+
+			}).Return(nil)
+
+			peer.On("Acknowledge", mock.Anything).Run(func(args mock.Arguments) {
+				defer GinkgoRecover()
+
+				logger := logger.With(zap.String("role", "ack"))
+				server := args.Get(0).(api.Sync_AcknowledgeServer)
+				ctx := server.Context()
+
+				var client, model string
+				if md, ok := metadata.FromIncomingContext(ctx); ok {
+					if s := md.Get("peer"); len(s) == 1 {
+						client = s[0]
 					}
-					logger.Info("finished sending data")
-				}()
+					if s := md.Get("model"); len(s) == 1 {
+						model = s[0]
+					}
+				}
+				Expect(client).To(Equal(as))
+				Expect(model).To(Equal("data"))
 
 				// Receive Responses
 				for i := range data {
@@ -164,16 +279,8 @@ var _ = Describe("Client", func() {
 					logger.Info("received client data")
 				}
 
-				// gRPC's response channel will not close until this function returns,
-				// so we must verify the request channel closes properly in a go routine
-				wg.Add(1)
-				go func() {
-					defer GinkgoRecover()
-					defer wg.Done()
-					logger.Debug("waiting for client to close request channel")
-					Expect(server.Recv()).Error().To(Equal(status.Error(codes.Canceled, "context canceled")))
-					logger.Info("request channel closed")
-				}()
+				// EOF should be returned after final message received
+				Expect(server.Recv()).Error().To(Equal(io.EOF))
 			}).Return(nil)
 
 			to := &To{}
@@ -216,16 +323,14 @@ var _ = Describe("Client", func() {
 			to.On("Error").Return(nil)
 
 			Expect(syncd.Pull(log.NewContext(ctx, logger.With(zap.String("role", "client"))), "data", to, as)).To(Succeed())
-			Expect(syncd.Close()).To(Succeed())
-			wg.Wait()
-		})
+			peer.AssertExpectations(GinkgoT())
+		}, SpecTimeout(500*time.Millisecond))
 	})
 })
 
 func TestClient(t *testing.T) {
 	RegisterFailHandler(Fail)
 	cfg, rep := GinkgoConfiguration()
-	rep.Verbose = true
 	if d, ok := t.Deadline(); ok {
 		cfg.Timeout = d.Sub(time.Now())
 	}
@@ -237,17 +342,37 @@ type Server struct {
 	api.UnimplementedSyncServer
 }
 
-func (m *Server) Check(ctx context.Context, info *api.Info) (*api.Info, error) {
-	args := m.MethodCalled("Check", ctx, info)
+func (s *Server) Check(ctx context.Context, info *api.Info) (*api.Info, error) {
+	args := s.MethodCalled("Check", ctx, info)
 	return args.Get(0).(*api.Info), args.Error(1)
 }
 
-func (m *Server) Pull(server api.Sync_PullServer) error {
-	return m.MethodCalled("Pull", server).Error(0)
+func (s *Server) Push(server api.Sync_PushServer) error {
+	return s.MethodCalled("Push", server).Error(0)
 }
 
-func (m *Server) Push(server api.Sync_PushServer) error {
-	return m.MethodCalled("Push", server).Error(0)
+func (s *Server) Pull(_ *api.PullRequest, server api.Sync_PullServer) error {
+	return s.MethodCalled("Pull", server).Error(0)
+}
+
+func (s *Server) Acknowledge(server api.Sync_AcknowledgeServer) error {
+	return s.MethodCalled("Acknowledge", server).Error(0)
+}
+
+type From struct {
+	mock.Mock
+}
+
+func (f *From) Fetch(ctx context.Context) <-chan *api.Record {
+	return f.MethodCalled("Fetch", ctx).Get(0).(<-chan *api.Record)
+}
+
+func (f *From) Error() error {
+	return f.MethodCalled("Error").Error(0)
+}
+
+func (f *From) SetStatus(ctx context.Context, status ...*api.RecordStatus) error {
+	return f.MethodCalled("SetStatus", ctx, status).Error(0)
 }
 
 type To struct {
