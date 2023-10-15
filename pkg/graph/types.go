@@ -11,13 +11,13 @@ type Graph interface {
 }
 
 type Source interface {
-	Fetch(ctx context.Context) <-chan *api.Data
+	Fetch(ctx context.Context) <-chan *api.Record
 	Error() error
-	SetStatus(ctx context.Context, status ...*api.RecordStatus) error
+	SetStatus(context.Context, ...*api.RecordStatus) error
 }
 
 type Destination interface {
-	Write(ctx context.Context, data <-chan *api.Data) <-chan *api.RecordStatus
+	Write(context.Context, <-chan *api.Record) <-chan *api.RecordStatus
 	Error() error
 }
 
