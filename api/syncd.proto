@@ -6,7 +6,8 @@ option go_package = "github.com/raft-tech/syncd/pkg/api";
 service Sync {
   rpc Check (Info) returns (Info);
   rpc Push (stream Record) returns (stream RecordStatus);
-  rpc Pull (stream RecordStatus) returns (stream Record);
+  rpc Pull (PullRequest) returns (stream Record);
+  rpc Acknowledge(stream RecordStatus) returns (AcknowledgeResponse);
 }
 
 message Info {
@@ -51,3 +52,6 @@ message Data {
   repeated bytes bytes = 8;
   repeated Record records = 15;
 }
+
+message PullRequest{}
+message AcknowledgeResponse{}
