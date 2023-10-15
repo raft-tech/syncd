@@ -160,7 +160,7 @@ var _ = Describe("Factory", func() {
 				select {
 				case a, ok := <-in:
 					if ok {
-						data = append(data, a)
+						data = append(data, &api.Data{Type: api.DataType_RECORD, Records: []*api.Record{{Fields: a.Fields}}})
 					} else {
 						done = true
 					}
@@ -248,80 +248,50 @@ var _ = Describe("Factory", func() {
 			ctx = log.NewContext(ctx, logger)
 			dst := artists.Destination()
 
-			data := make(chan *api.Data)
-			go func(ctx context.Context, out chan<- *api.Data) {
+			data := make(chan *api.Record)
+			go func(ctx context.Context, out chan<- *api.Record) {
 				defer close(out)
-				for _, d := range []*api.Data{
+				for _, d := range []*api.Record{
 					{
-						Type: api.DataType_RECORD,
-						Records: []*api.Record{
-							{
-								Fields: map[string]*api.Data{
-									"id":      api.StringData{}.From("384fc100-740c-43b0-bde2-106c796e2b8b"),
-									"name":    api.StringData{}.From("Chester Bennington"),
-									"version": api.StringData{}.From("1"),
-								},
-							},
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("384fc100-740c-43b0-bde2-106c796e2b8b"),
+							"name":    api.StringData{}.From("Chester Bennington"),
+							"version": api.StringData{}.From("1"),
 						},
 					},
 					{
-						Type: api.DataType_RECORD,
-						Records: []*api.Record{
-							{
-								Fields: map[string]*api.Data{
-									"id":      api.StringData{}.From("a3fc39bc-5144-4442-8f93-22b1e8a6fb7e"),
-									"name":    api.StringData{}.From("Mike Shinoda"),
-									"version": api.StringData{}.From("1"),
-								},
-							},
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("a3fc39bc-5144-4442-8f93-22b1e8a6fb7e"),
+							"name":    api.StringData{}.From("Mike Shinoda"),
+							"version": api.StringData{}.From("1"),
 						},
 					},
 					{
-						Type: api.DataType_RECORD,
-						Records: []*api.Record{
-							{
-								Fields: map[string]*api.Data{
-									"id":      api.StringData{}.From("99037e22-5c87-483b-97e1-8f54fbd26215"),
-									"name":    api.StringData{}.From("Joe Hahn"),
-									"version": api.StringData{}.From("1"),
-								},
-							},
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("99037e22-5c87-483b-97e1-8f54fbd26215"),
+							"name":    api.StringData{}.From("Joe Hahn"),
+							"version": api.StringData{}.From("1"),
 						},
 					},
 					{
-						Type: api.DataType_RECORD,
-						Records: []*api.Record{
-							{
-								Fields: map[string]*api.Data{
-									"id":      api.StringData{}.From("e2db93ce-33ce-4e69-abfc-e0d1ccee503d"),
-									"name":    api.StringData{}.From("Rob Bourdon"),
-									"version": api.StringData{}.From("1"),
-								},
-							},
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("e2db93ce-33ce-4e69-abfc-e0d1ccee503d"),
+							"name":    api.StringData{}.From("Rob Bourdon"),
+							"version": api.StringData{}.From("1"),
 						},
 					},
 					{
-						Type: api.DataType_RECORD,
-						Records: []*api.Record{
-							{
-								Fields: map[string]*api.Data{
-									"id":      api.StringData{}.From("cd40483b-7828-464c-9373-19241585c12d"),
-									"name":    api.StringData{}.From("Dave Farrel"),
-									"version": api.StringData{}.From("1"),
-								},
-							},
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("cd40483b-7828-464c-9373-19241585c12d"),
+							"name":    api.StringData{}.From("Dave Farrel"),
+							"version": api.StringData{}.From("1"),
 						},
 					},
 					{
-						Type: api.DataType_RECORD,
-						Records: []*api.Record{
-							{
-								Fields: map[string]*api.Data{
-									"id":      api.StringData{}.From("72b373fa-da8d-42c4-8b4a-c938ff6e6932"),
-									"name":    api.StringData{}.From("Brad Delson"),
-									"version": api.StringData{}.From("1"),
-								},
-							},
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("72b373fa-da8d-42c4-8b4a-c938ff6e6932"),
+							"name":    api.StringData{}.From("Brad Delson"),
+							"version": api.StringData{}.From("1"),
 						},
 					},
 				} {
@@ -571,7 +541,7 @@ var _ = Describe("Factory", func() {
 				ctx = log.NewContext(ctx, logger)
 
 				By("sending all unsynced data")
-				var actual []*api.Data
+				var actual []*api.Record
 				data := src.Fetch(ctx)
 				for done := false; !done; {
 					select {
@@ -585,70 +555,65 @@ var _ = Describe("Factory", func() {
 						Skip("context canceled")
 					}
 				}
-				Expect(actual).To(ContainElements(
-					And(
-						Not(BeNil()),
-						HaveField("Type", Equal(api.DataType_RECORD)),
-						HaveField("IsList", BeFalse()),
-						HaveField("Records", And(
-							HaveLen(1),
-							ContainElement(HaveField("Fields", And(
-								HaveKeyWithValue("id", api.StringData{}.From("16551b42-292f-4316-800c-880c864fcbfd")),
-								HaveKeyWithValue("label", api.StringData{}.From("VeeJay")),
-								HaveKeyWithValue("version", api.StringData{}.From("1")),
-								HaveKeyWithValue("members", And(
-									HaveField("Type", Equal(api.DataType_STRING)),
-									HaveField("IsList", BeTrue()),
-									HaveField("Strings", And(
-										HaveLen(4),
-										ContainElements(
-											"8b9835e6-9928-4f6a-afba-ea3e80cf89d0",
-											"253cedce-05ed-44bc-a49d-6f570a18b2ef",
-											"57ecbe75-ba4c-4094-acca-d066b6c6d058",
-											"88a6845b-e286-49a0-aa09-d89309d12d33",
+				Expect(actual).To(And(
+					HaveLen(2),
+					ContainElement(
+						HaveField("Fields", And(
+							HaveKeyWithValue("id", api.StringData{}.From("16551b42-292f-4316-800c-880c864fcbfd")),
+							HaveKeyWithValue("label", api.StringData{}.From("VeeJay")),
+							HaveKeyWithValue("version", api.StringData{}.From("1")),
+							HaveKeyWithValue("members", And(
+								HaveField("Type", Equal(api.DataType_STRING)),
+								HaveField("IsList", BeTrue()),
+								HaveField("Strings", And(
+									HaveLen(4),
+									ContainElements(
+										"8b9835e6-9928-4f6a-afba-ea3e80cf89d0",
+										"253cedce-05ed-44bc-a49d-6f570a18b2ef",
+										"57ecbe75-ba4c-4094-acca-d066b6c6d058",
+										"88a6845b-e286-49a0-aa09-d89309d12d33",
+									),
+								)))),
+							HaveKeyWithValue("performances", And(
+								HaveField("Type", Equal(api.DataType_RECORD)),
+								HaveField("IsList", BeTrue()),
+								HaveField("Records", And(
+									HaveLen(2),
+									ContainElements(
+										And(
+											HaveField("Fields", And(
+												HaveKeyWithValue("performer", api.StringData{}.From("16551b42-292f-4316-800c-880c864fcbfd")),
+												HaveKeyWithValue("sequence", api.UintData{}.From(1)),
+												HaveKeyWithValue("song", api.StringData{}.From("ec7f7744-1f8f-4086-bff6-4809ecb948f4")),
+											)),
 										),
-									)))),
-								HaveKeyWithValue("performances", And(
-									HaveField("Type", Equal(api.DataType_RECORD)),
-									HaveField("IsList", BeTrue()),
-									HaveField("Records", And(
-										HaveLen(2),
-										ContainElements(
-											And(
-												HaveField("Fields", And(
-													HaveKeyWithValue("performer", api.StringData{}.From("16551b42-292f-4316-800c-880c864fcbfd")),
-													HaveKeyWithValue("sequence", api.UintData{}.From(1)),
-													HaveKeyWithValue("song", api.StringData{}.From("ec7f7744-1f8f-4086-bff6-4809ecb948f4")),
-												)),
-											),
-											And(
-												HaveField("Fields", And(
-													HaveKeyWithValue("performer", api.StringData{}.From("16551b42-292f-4316-800c-880c864fcbfd")),
-													HaveKeyWithValue("sequence", api.UintData{}.From(2)),
-													HaveKeyWithValue("song", api.StringData{}.From("3ce42a81-ae99-42b6-b4ed-d0dc1107e651")),
-												)),
-											),
+										And(
+											HaveField("Fields", And(
+												HaveKeyWithValue("performer", api.StringData{}.From("16551b42-292f-4316-800c-880c864fcbfd")),
+												HaveKeyWithValue("sequence", api.UintData{}.From(2)),
+												HaveKeyWithValue("song", api.StringData{}.From("3ce42a81-ae99-42b6-b4ed-d0dc1107e651")),
+											)),
 										),
-									)),
+									),
 								)),
-							))),
+							)),
 						)),
-					)))
+					),
+				))
 
 				// Update statuses
 				By("accepting RecordStatus updates")
 				var status []*api.RecordStatus
 				for i := range actual {
-					Expect(actual[i].Records).To(And(
-						HaveLen(1),
-						ContainElement(HaveField("Fields",
+					Expect(actual[i]).To(And(
+						HaveField("Fields",
 							HaveKeyWithValue("performances", And(
 								HaveField("Type", Equal(api.DataType_RECORD)),
 								HaveField("IsList", BeTrue()),
 							)),
-						)),
+						),
 					))
-					performances := actual[i].Records[0].Fields["performances"].Records
+					performances := actual[i].Fields["performances"].Records
 					var sequences map[string]uint64
 					if len(performances) > 0 {
 						lastPerformance := performances[len(performances)-1].Fields["sequence"].Uints[0]
@@ -657,8 +622,8 @@ var _ = Describe("Factory", func() {
 						}
 					}
 					status = append(status, &api.RecordStatus{
-						Id:        actual[i].Records[0].Fields["id"].Strings[0],
-						Version:   actual[i].Records[0].Fields["version"].Strings[0],
+						Id:        actual[i].Fields["id"].Strings[0],
+						Version:   actual[i].Fields["version"].Strings[0],
 						Sequences: sequences,
 					})
 				}

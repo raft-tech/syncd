@@ -255,12 +255,12 @@ type source struct {
 	error   error
 }
 
-func (f *source) Fetch(ctx context.Context) <-chan *api.Data {
+func (f *source) Fetch(ctx context.Context) <-chan *api.Record {
 
 	f.error = nil
 
-	out := make(chan *api.Data)
-	go func(ctx context.Context, out chan<- *api.Data) {
+	out := make(chan *api.Record)
+	go func(ctx context.Context, out chan<- *api.Record) {
 
 		defer close(out)
 		logger := log.FromContext(ctx).With(zap.String("peer", f.peer))
@@ -350,7 +350,7 @@ func (f *source) Fetch(ctx context.Context) <-chan *api.Data {
 			if err := f.model.Fetch(ctx, f.Pool, id, data); err == nil {
 				logger.Debug("syncing record")
 				select {
-				case out <- data:
+				case out <- data.Records[0]: // FIXME ensure this always exists
 					logger.Debug("record synced")
 					count++
 				case _ = <-ctx.Done():
@@ -438,10 +438,10 @@ type destination struct {
 	error error
 }
 
-func (d *destination) Write(ctx context.Context, data <-chan *api.Data) <-chan *api.RecordStatus {
+func (d *destination) Write(ctx context.Context, data <-chan *api.Record) <-chan *api.RecordStatus {
 	d.error = nil
 	status := make(chan *api.RecordStatus)
-	go func(ctx context.Context, in <-chan *api.Data, out chan<- *api.RecordStatus) {
+	go func(ctx context.Context, in <-chan *api.Record, out chan<- *api.RecordStatus) {
 		defer close(out)
 		logger := log.FromContext(ctx).With(zap.String("model", d.model.Name))
 		logger.Info("ready to receive data")
@@ -450,7 +450,10 @@ func (d *destination) Write(ctx context.Context, data <-chan *api.Data) <-chan *
 			select {
 			case val, ok := <-in:
 				if ok {
-					if s, ok := d.write(ctx, val); ok {
+					if s, ok := d.write(ctx, &api.Data{
+						Type:    api.DataType_RECORD,
+						Records: []*api.Record{{Fields: val.Fields}},
+					}); ok {
 						count++
 						out <- s
 					} else {
