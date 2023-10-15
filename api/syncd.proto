@@ -1,7 +1,7 @@
 syntax = "proto3";
 package syncd;
 
-option go_package = "github.com/raft-tech/syncd/pkg/api";
+option go_package = "github.com/raft-tech/syncd/internal/api";
 
 service Sync {
   rpc Check (Info) returns (Info);

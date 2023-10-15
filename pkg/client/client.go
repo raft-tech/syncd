@@ -6,8 +6,8 @@ import (
 	"io"
 	"sync"
 
+	"github.com/raft-tech/syncd/internal/api"
 	"github.com/raft-tech/syncd/internal/log"
-	"github.com/raft-tech/syncd/pkg/api"
 	"github.com/raft-tech/syncd/pkg/graph"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -20,7 +20,7 @@ var UnhandledError error = errors.New("an unhandled gRPC error occurred")
 type Client interface {
 	io.Closer
 	Connect(ctx context.Context) error
-	Check(ctx context.Context, as string) (bool, error)
+	Check(ctx context.Context, model string, as string) (bool, error)
 	Push(ctx context.Context, model string, from graph.Source, as string) error
 	Pull(ctx context.Context, model string, to graph.Destination, as string) error
 }
@@ -66,7 +66,7 @@ func (c *client) Connect(ctx context.Context) error {
 
 }
 
-func (c *client) Check(ctx context.Context, as string) (bool, error) {
+func (c *client) Check(ctx context.Context, model string, as string) (bool, error) {
 
 	// verify connection
 	c.RLock()
@@ -76,9 +76,9 @@ func (c *client) Check(ctx context.Context, as string) (bool, error) {
 	}
 
 	// perform check
-	logger := log.FromContext(ctx).With(zap.String("peer", c.serverAddress), zap.String("as", as), zap.String("call", "check"))
+	logger := log.FromContext(ctx).With(zap.String("peer", c.serverAddress), zap.String("model", model), zap.String("as", as), zap.String("call", "check"))
 	logger.Debug("checking peer")
-	if i, e := c.sync.Check(metadata.AppendToOutgoingContext(ctx, "peer", as), api.CheckInfo()); e == nil {
+	if i, e := c.sync.Check(metadata.AppendToOutgoingContext(ctx, "peer", as, "model", model), api.CheckInfo()); e == nil {
 		logger.Info("peer check successful", zap.Uint32("peerApiVersion", i.ApiVersion))
 		return true, nil
 	} else {

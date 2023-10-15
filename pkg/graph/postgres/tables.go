@@ -2,8 +2,9 @@ package postgres
 
 import (
 	"errors"
+
 	"github.com/jackc/pgx/v5"
-	"github.com/raft-tech/syncd/pkg/api"
+	"github.com/raft-tech/syncd/internal/api"
 )
 
 const (

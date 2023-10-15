@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raft-tech/syncd/internal/api"
 	"github.com/raft-tech/syncd/internal/log"
-	"github.com/raft-tech/syncd/pkg/api"
 	"github.com/raft-tech/syncd/pkg/graph"
 	"go.uber.org/zap"
-	"strings"
 )
 
 type ConnectionConfig struct {
