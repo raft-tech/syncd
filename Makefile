@@ -1,6 +1,6 @@
 
 .PHONY: generate
-generate: pkg/api/syncd.pb.go pkg/api/syncd_grpc.pb.go
+generate: internal/api internal/api
 
 
 .PHONY: test-all
@@ -22,7 +22,7 @@ test-postgres-do:
 	docker stop syncd-postgres
 
 
-pkg/api/syncd.pb.go pkg/api/syncd_grpc.pb.go: api/syncd.proto
+internal/api/syncd.pb.go internal/api/syncd_grpc.pb.go: api/syncd.proto
 	docker run --rm -v $$(pwd):/src syncd-grpc:latest \
 	--experimental_allow_proto3_optional \
 	--go_out=. --go_opt=module=github.com/raft-tech/syncd --go_opt=paths=import \

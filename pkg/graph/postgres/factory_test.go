@@ -3,16 +3,17 @@ package postgres
 import (
 	"context"
 	_ "embed"
+	"os"
+	"testing"
+
 	"github.com/jackc/pgx/v5"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/raft-tech/syncd/internal/api"
 	"github.com/raft-tech/syncd/internal/log"
-	"github.com/raft-tech/syncd/pkg/api"
 	"github.com/raft-tech/syncd/pkg/graph"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"os"
-	"testing"
 )
 
 //go:embed test_data.sql

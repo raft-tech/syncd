@@ -2,7 +2,8 @@ package graph
 
 import (
 	"context"
-	"github.com/raft-tech/syncd/pkg/api"
+
+	"github.com/raft-tech/syncd/internal/api"
 )
 
 type Graph interface {

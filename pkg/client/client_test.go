@@ -10,8 +10,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/raft-tech/syncd/internal/api"
 	"github.com/raft-tech/syncd/internal/log"
-	"github.com/raft-tech/syncd/pkg/api"
 	"github.com/raft-tech/syncd/pkg/client"
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
@@ -86,7 +86,7 @@ var _ = Describe("Client", func() {
 
 		It("Checks", func(ctx context.Context) {
 			peer.On("Check", mock.Anything, mock.Anything).Return(api.CheckInfo(), nil)
-			Expect(syncd.Check(log.NewContext(ctx, logger), as)).To(And(BeTrue()))
+			Expect(syncd.Check(log.NewContext(ctx, logger), "data", as)).To(And(BeTrue()))
 		})
 
 		It("Pushes", func(ctx context.Context) {
