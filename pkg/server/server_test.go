@@ -194,8 +194,112 @@ var _ = Describe("Client", func() {
 				Expect(syncd.Push(ctx, model, graphh.Source(model), as)).To(Succeed())
 				graphh.from.AssertExpectations(GinkgoT())
 				graphh.to.AssertExpectations(GinkgoT())
-			})
-			//}, SpecTimeout(500*time.Millisecond))
+			}, SpecTimeout(500*time.Millisecond))
+
+			It("handles pull and acknowledge", func(ctx context.Context) {
+
+				data := []*api.Record{
+					{
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("1"),
+							"name":    api.StringData{}.From("John Mayer"),
+							"version": api.StringData{}.From("a"),
+						},
+					},
+					{
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("2"),
+							"name":    api.StringData{}.From("Pino Palladino"),
+							"version": api.StringData{}.From("b"),
+						},
+					},
+					{
+						Fields: map[string]*api.Data{
+							"id":      api.StringData{}.From("3"),
+							"name":    api.StringData{}.From("Steve Jordan"),
+							"version": api.StringData{}.From("c"),
+						},
+					},
+				}
+
+				status := make(chan *api.RecordStatus)
+				var statusOut <-chan *api.RecordStatus = status
+				graphh.to.On("Write", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+					// The destination work must be done in a go routine to allow the status channel to return
+					go func(out chan<- *api.RecordStatus) {
+						defer GinkgoRecover()
+						defer close(out)
+						logger := logger.With(zap.String("role", "destination"))
+						ctx := args.Get(0).(context.Context)
+						src := args.Get(1).(<-chan *api.Record)
+						for done := false; !done; {
+							logger.Debug("waiting on server data")
+							select {
+							case r, ok := <-src:
+								if ok {
+									logger := logger.With(zap.String("id", r.Fields["id"].Strings[0]))
+									logger.Debug("sending record status")
+									select {
+									case out <- &api.RecordStatus{
+										Id:      r.Fields["id"].Strings[0],
+										Version: r.Fields["version"].Strings[0],
+										Error:   api.NoRecordError(),
+									}:
+										logger.Info("record status sent")
+									case <-ctx.Done():
+										Fail("context canceled")
+									}
+								}
+								done = !ok
+							case <-ctx.Done():
+								done = true
+								Fail("context canceled")
+							}
+						}
+					}(status)
+				}).Return(statusOut)
+				graphh.to.On("Error").Return(nil)
+
+				src := make(chan *api.Record)
+				var srcOut <-chan *api.Record = src
+				graphh.from.On("Fetch", mock.Anything).Run(func(args mock.Arguments) {
+					go func(ctx context.Context, dst chan<- *api.Record) {
+						defer GinkgoRecover()
+						defer close(src)
+						logger := logger.With(zap.String("role", "source"))
+						for i := range data {
+							select {
+							case src <- data[i]:
+								logger.Debug("sent record", zap.String("id", data[i].Fields["id"].Strings[0]))
+							case <-ctx.Done():
+								Fail("context canceled while sending data")
+							}
+						}
+					}(args.Get(0).(context.Context), src)
+				}).Return(srcOut)
+
+				wg := sync.WaitGroup{}
+				for i := range data {
+					match := func(record *api.Record) func(recordStatus []*api.RecordStatus) bool {
+						matcher := func(recordStatus []*api.RecordStatus) bool {
+							return len(recordStatus) == 1 &&
+								recordStatus[0].Id == record.Fields["id"].Strings[0] &&
+								recordStatus[0].Version == record.Fields["version"].Strings[0] &&
+								*recordStatus[0].Error == 0
+						}
+						return matcher
+					}
+					graphh.from.On("SetStatus", mock.Anything, mock.MatchedBy(match(data[i]))).Run(func(_ mock.Arguments) {
+						wg.Done()
+					}).Once().Return(nil)
+					wg.Add(1)
+				}
+
+				Expect(syncd.Pull(log.NewContext(ctx, logger.With(zap.String("role", "client"))), "data", &graphh.to, as)).To(Succeed())
+				wg.Wait()
+				graphh.to.AssertExpectations(GinkgoT(1))
+				graphh.from.AssertExpectations(GinkgoT(1))
+			}, SpecTimeout(300*time.Millisecond))
 		})
 	})
 })
