@@ -38,6 +38,7 @@ func (s *server) Check(ctx context.Context, info *api.Info) (*api.Info, error) {
 }
 
 func (s *server) Push(ps api.Sync_PushServer) error {
+
 	ctx := ps.Context()
 	peer, model, logger := setUp(ctx, "push")
 	if !s.peerValidator(peer, model) {
@@ -92,6 +93,9 @@ func (s *server) Push(ps api.Sync_PushServer) error {
 		case <-ctx.Done():
 			logger.Info("context canceled while waiting for next record status")
 			done = true
+			for range out {
+				<-out
+			}
 		}
 	}
 
@@ -108,14 +112,79 @@ func (s *server) Push(ps api.Sync_PushServer) error {
 	return nil
 }
 
-func (s *server) Pull(request *api.PullRequest, pullServer api.Sync_PullServer) error {
-	//TODO implement me
-	panic("implement me")
+func (s *server) Pull(_ *api.PullRequest, ps api.Sync_PullServer) error {
+
+	ctx := ps.Context()
+	peer, model, logger := setUp(ctx, "pull")
+	if !s.peerValidator(peer, model) {
+		return status.Error(codes.NotFound, "unknown model")
+	}
+	var src graph.Source
+	if g, ok := s.lookup(model); ok {
+		src = g.Source(peer) // TODO add filters
+	} else {
+		return status.Error(codes.NotFound, "unknown model")
+	}
+
+	in := src.Fetch(ctx)
+	for done := false; !done; {
+		select {
+		case r, ok := <-in:
+			if ok {
+				if err := ps.Send(r); err != nil {
+					logger.Error("error sending record", zap.Error(err))
+				}
+			} else {
+				done = true
+			}
+		case <-ctx.Done():
+			logger.Info("context canceled while handling push")
+			for range in {
+				<-in
+			}
+			return status.Error(codes.DeadlineExceeded, "deadline exceeded")
+		}
+	}
+
+	return nil
 }
 
-func (s *server) Acknowledge(acknowledgeServer api.Sync_AcknowledgeServer) error {
-	//TODO implement me
-	panic("implement me")
+func (s *server) Acknowledge(as api.Sync_AcknowledgeServer) error {
+
+	ctx := as.Context()
+	peer, model, logger := setUp(ctx, "acknowledge")
+	if !s.peerValidator(peer, model) {
+		return status.Error(codes.NotFound, "unknown model")
+	}
+	var src graph.Source
+	if g, ok := s.lookup(model); ok {
+		src = g.Source(peer) // TODO add filters
+	} else {
+		return status.Error(codes.NotFound, "unknown model")
+	}
+
+	for done := false; !done; {
+		rec, err := as.Recv()
+		if err == nil {
+			if err = src.SetStatus(ctx, rec); err != nil {
+				logger.Error("error setting record status", zap.Error(err))
+				return status.Error(codes.Internal, "unhandled error")
+			}
+		} else {
+			done = true
+			switch {
+			case errors.Is(err, io.EOF):
+				logger.Info("all records received")
+			case errors.Is(err, context.Canceled):
+				fallthrough
+			case errors.Is(err, context.DeadlineExceeded):
+				logger.Info("context canceled while receiving records")
+			default:
+				logger.Error("error while receiving records", zap.Error(err))
+			}
+		}
+	}
+	return nil
 }
 
 func setUp(ctx context.Context, call string) (string, string, *zap.Logger) {
