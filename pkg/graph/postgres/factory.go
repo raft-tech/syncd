@@ -92,7 +92,7 @@ func New(ctx context.Context, cfg ConnectionConfig) (graph.Factory, error) {
 		}
 
 		if comment == syncTableVersion {
-			logger.Info("sync tables already exists")
+			logger.Debug("sync table already exists")
 		} else if comment == "" {
 
 			logger.Debug("creating sync tables")

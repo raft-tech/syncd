@@ -2,6 +2,9 @@ package server_test
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	_ "embed"
 	"net"
 	"sync"
 	"testing"
@@ -9,7 +12,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	api "github.com/raft-tech/syncd/internal/api"
+	"github.com/raft-tech/syncd/internal/api"
+	"github.com/raft-tech/syncd/internal/helpers"
 	"github.com/raft-tech/syncd/internal/log"
 	"github.com/raft-tech/syncd/pkg/client"
 	"github.com/raft-tech/syncd/pkg/graph"
@@ -18,11 +22,12 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 )
 
-var _ = Describe("Client", func() {
+var _ = Describe("Server", func() {
 
 	var logger *zap.Logger
 	BeforeEach(func() {
@@ -300,6 +305,93 @@ var _ = Describe("Client", func() {
 				graphh.to.AssertExpectations(GinkgoT(1))
 				graphh.from.AssertExpectations(GinkgoT(1))
 			}, SpecTimeout(300*time.Millisecond))
+		})
+	})
+
+	Context("with preshared key", func() {
+
+		psk := "The pool on the roof must have a leak."
+
+		var listener *bufconn.Listener
+		var serverCert *tls.Certificate
+		var as string
+		var syncd client.Client
+		BeforeEach(func(ctx SpecContext) {
+			listener = bufconn.Listen(10 * 1024)
+			as = ctx.SpecReport().LeafNodeText
+			if c, e := helpers.SelfSignedCertificate("syncd", "syncd"); e == nil {
+				serverCert = c
+			} else {
+				Expect(e).NotTo(HaveOccurred())
+			}
+			caPool := x509.NewCertPool()
+			caPool.AddCert(serverCert.Leaf)
+			var err error
+			syncd, err = client.New(ctx, "buffered", client.WithDialOptions(
+				grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+					return listener.DialContext(ctx)
+				}),
+				grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{RootCAs: caPool})),
+				grpc.WithAuthority("syncd"),
+				client.WithPreSharedKey(psk),
+			))
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		Context("with TLS server", func() {
+
+			var gserver *grpc.Server
+			var serverErr error
+			var serverWait sync.WaitGroup
+			BeforeEach(func() {
+				psk := server.PreSharedKey(psk)
+				gserver = grpc.NewServer(
+					grpc.Creds(credentials.NewTLS(&tls.Config{
+						Certificates: []tls.Certificate{*serverCert},
+						ClientAuth:   tls.NoClientCert,
+					})),
+					grpc.ChainUnaryInterceptor(
+						func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+							ctx = log.NewContext(ctx, logger)
+							return handler(ctx, req)
+						},
+						psk.UnaryInterceptor,
+					),
+					grpc.ChainStreamInterceptor(
+						func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+							ctx := log.NewContext(ss.Context(), logger)
+							return handler(srv, server.ServerStreamWithContext(ss, ctx))
+						},
+						psk.StreamInterceptor,
+					),
+				)
+				api.RegisterSyncServer(gserver, server.New(server.Options{}))
+				serverWait.Add(1)
+				go func() {
+					defer serverWait.Done()
+					serverErr = gserver.Serve(listener)
+				}()
+			})
+
+			AfterEach(func() {
+				gserver.Stop()
+				serverWait.Wait()
+				Expect(serverErr).ToNot(HaveOccurred())
+			})
+
+			var graphh *Graph
+			var model = "data"
+			BeforeEach(func(ctx SpecContext) {
+				Expect(syncd.Connect(ctx)).To(Succeed())
+				graphh = new(Graph)
+				server.DeregisterGraph(model)
+				server.RegisterGraph(model, graphh)
+			})
+
+			It("handles check", func(ctx context.Context) {
+				ctx = log.NewContext(ctx, logger)
+				Expect(syncd.Check(ctx, model, as)).To(BeTrue())
+			})
 		})
 	})
 })

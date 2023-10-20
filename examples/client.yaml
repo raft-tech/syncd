@@ -1,0 +1,75 @@
+logging:
+  format: json
+  level: debug
+
+client:
+  name: alpha
+  auth:
+    tls:
+      ca:
+       - /path/to/ca.pem        # (optional) enables server authentication
+      crt: /path/to/client.pem  # (optional)
+      key: /path/to/client.key  # (optional)
+    preSharedKey:
+      fromEnv: SYNCD_AUTH_PRESHARED_KEY
+  peers:
+    bravo:
+      address: bravo.syncd.teamraft.com
+      authority: bravo
+      pull:
+        - artists
+        - performers
+        - songs
+      push:
+        artists:
+          filters:
+            - key: name
+              operator: In
+              values:
+                - John Lennon
+                - Paul McCartney
+                - Ringo Starr
+                - George Harrison
+        performers:
+          filters:
+            - key: label
+              operator: In
+              values:
+                - VeeJay
+        songs:
+          filters:
+            - key: publisher
+              operator: In
+              values:
+                - VeeJay
+
+graph:
+  source:
+    postgres:
+      syncTable:
+        name:
+      sequenceTable:
+        name:
+      connection:
+        fromEnv: SYNCD_POSTGESQL_CONN
+  models:
+    artists:
+      table: artists
+      key: id
+      version: version
+    songs:
+      table: songs
+      key: id
+      version: version
+    performers:
+      table: performers
+      key: id
+      version: version
+      children:
+        artists:
+          table: performer_artists
+          key: performer
+        performances:
+          table: performances
+          key: performer
+          sequence: sequence

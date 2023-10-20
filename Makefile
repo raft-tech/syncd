@@ -1,13 +1,22 @@
+.PHONY: build
+build: generate
+	CGO_ENABLED=0 go build -o syncd
+
+.PHONY: clean
+clean:
+	[ ! -f syncd ] || rm syncd
+	[ ! -f pkg/server/server.crt ] || rm pkg/server/server.crt
+	[ ! -f pkg/server/server.key ] || rm pkg/server/server.key
+	go clean -cache -testcache -x
 
 .PHONY: generate
-generate: internal/api internal/api
-
+generate: internal/api/syncd.pb.go internal/api/syncd_grpc.pb.go
 
 .PHONY: test-all
 test-all: test test-postgres
 
 .PHONY: test
-test:
+test: generate
 	go vet ./...
 	go test ./... -short -timeout 15s
 
@@ -29,6 +38,11 @@ internal/api/syncd.pb.go internal/api/syncd_grpc.pb.go: api/syncd.proto
 	--go-grpc_out=. --go-grpc_opt=module=github.com/raft-tech/syncd --go-grpc_opt=paths=import \
 	api/syncd.proto
 
+.PHONY: tls-test-cert
+tls-test-cert:
+	openssl req -x509 -newkey rsa:1024 -keyout server.key -out server.crt -days 30 -nodes \
+		-subj "/C=US/CN=syncd" \
+		-addext "subjectAltName=DNS:syncd"
 
 # PostgreSQL Instances
 

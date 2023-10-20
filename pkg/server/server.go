@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -28,8 +27,8 @@ type server struct {
 }
 
 func (s *server) Check(ctx context.Context, info *api.Info) (*api.Info, error) {
-	peer, model, logger := setUp(ctx, "check")
-	if model != "" && !s.peerValidator(peer, model) {
+	md, logger := setUp(ctx, "check")
+	if md.Model != "" && !s.peerValidator(md.Peer, md.Model) {
 		logger.Info("peer requested unknown or unbound model")
 		return nil, status.Error(codes.NotFound, "unknown model")
 	}
@@ -40,12 +39,12 @@ func (s *server) Check(ctx context.Context, info *api.Info) (*api.Info, error) {
 func (s *server) Push(ps api.Sync_PushServer) error {
 
 	ctx := ps.Context()
-	peer, model, logger := setUp(ctx, "push")
-	if !s.peerValidator(peer, model) {
+	md, logger := setUp(ctx, "push")
+	if !s.peerValidator(md.Peer, md.Model) {
 		return status.Error(codes.NotFound, "unknown model")
 	}
 	var dst graph.Destination
-	if g, ok := s.lookup(model); ok {
+	if g, ok := s.lookup(md.Model); ok {
 		dst = g.Destination()
 	} else {
 		return status.Error(codes.NotFound, "unknown model")
@@ -115,13 +114,13 @@ func (s *server) Push(ps api.Sync_PushServer) error {
 func (s *server) Pull(_ *api.PullRequest, ps api.Sync_PullServer) error {
 
 	ctx := ps.Context()
-	peer, model, logger := setUp(ctx, "pull")
-	if !s.peerValidator(peer, model) {
+	md, logger := setUp(ctx, "pull")
+	if !s.peerValidator(md.Peer, md.Model) {
 		return status.Error(codes.NotFound, "unknown model")
 	}
 	var src graph.Source
-	if g, ok := s.lookup(model); ok {
-		src = g.Source(peer) // TODO add filters
+	if g, ok := s.lookup(md.Model); ok {
+		src = g.Source(md.Peer) // TODO add filters
 	} else {
 		return status.Error(codes.NotFound, "unknown model")
 	}
@@ -152,13 +151,13 @@ func (s *server) Pull(_ *api.PullRequest, ps api.Sync_PullServer) error {
 func (s *server) Acknowledge(as api.Sync_AcknowledgeServer) error {
 
 	ctx := as.Context()
-	peer, model, logger := setUp(ctx, "acknowledge")
-	if !s.peerValidator(peer, model) {
+	md, logger := setUp(ctx, "acknowledge")
+	if !s.peerValidator(md.Peer, md.Model) {
 		return status.Error(codes.NotFound, "unknown model")
 	}
 	var src graph.Source
-	if g, ok := s.lookup(model); ok {
-		src = g.Source(peer) // TODO add filters
+	if g, ok := s.lookup(md.Model); ok {
+		src = g.Source(md.Peer) // TODO add filters
 	} else {
 		return status.Error(codes.NotFound, "unknown model")
 	}
@@ -187,17 +186,14 @@ func (s *server) Acknowledge(as api.Sync_AcknowledgeServer) error {
 	return nil
 }
 
-func setUp(ctx context.Context, call string) (string, string, *zap.Logger) {
-	var peer, model string
-	if d, ok := metadata.FromIncomingContext(ctx); ok {
-		if p := d.Get("peer"); len(p) > 0 {
-			peer = p[0]
-		}
-		if m := d.Get("model"); len(m) > 0 {
-			model = m[0]
-		}
+func setUp(ctx context.Context, call string) (api.Metadata, *zap.Logger) {
+	logger := log.FromContext(ctx).With(zap.String("call", call))
+	md := api.Metadata{}
+	if d, ok := api.GetMetadataFromContext(ctx); ok {
+		md = d
+		logger = logger.With(zap.String("peer", md.Peer), zap.String("model", md.Model))
 	}
-	return peer, model, log.FromContext(ctx).With(zap.String("peer", peer), zap.String("model", model), zap.String("call", call))
+	return md, logger
 }
 
 func ServerStreamWithContext(ss grpc.ServerStream, ctx context.Context) grpc.ServerStream {

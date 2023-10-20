@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	_ "embed"
-	"github.com/raft-tech/syncd/cmd"
 	"os"
 	"os/signal"
+
+	"github.com/raft-tech/syncd/cmd"
 )
 
 //go:embed VERSION
@@ -24,7 +25,7 @@ func main() {
 	// Run the root command
 	if err := cmd.New(cmd.DefaultOptions).ExecuteContext(ctx); err != nil {
 		code := 1
-		if err, ok := err.(cmd.Error); ok {
+		if err, ok := err.(interface{ Code() int }); ok {
 			code = err.Code()
 		}
 		os.Exit(code)

@@ -1,8 +1,10 @@
 package client
 
 import (
+	"context"
 	"crypto/tls"
 
+	"github.com/raft-tech/syncd/pkg/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -22,4 +24,21 @@ func WithDialOptions(opt ...grpc.DialOption) ClientOption {
 		c.dialOpts = append(c.dialOpts, opt...)
 		return nil
 	}
+}
+
+func WithPreSharedKey(key string) grpc.DialOption {
+	if key == "" {
+		panic("key must not be empty")
+	}
+	return grpc.WithPerRPCCredentials(preSharedKey(key))
+}
+
+type preSharedKey string
+
+func (psk preSharedKey) GetRequestMetadata(_ context.Context, uri ...string) (map[string]string, error) {
+	return map[string]string{server.PSK_METADATA_KEY: string(psk)}, nil
+}
+
+func (_ preSharedKey) RequireTransportSecurity() bool {
+	return true
 }
