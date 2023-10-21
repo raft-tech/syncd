@@ -11,6 +11,24 @@ import (
 	"go.uber.org/zap"
 )
 
+type PostgresGraphFactory func(ctx context.Context, config postgres.ConnectionConfig) (graph.Factory, error)
+
+var (
+	postgresFactory PostgresGraphFactory
+)
+
+func init() {
+	ResetPostgresGraphFactory()
+}
+
+func OverridePostgresGraphFactory(factory PostgresGraphFactory) {
+	postgresFactory = factory
+}
+
+func ResetPostgresGraphFactory() {
+	postgresFactory = postgres.New
+}
+
 func Graph(ctx context.Context, cfg *viper.Viper) (syncd map[string]graph.Graph, closer func(context.Context) error, err error) {
 
 	gcfg := GraphConfig{}
@@ -127,5 +145,5 @@ func (c *GraphConfig) PostgreSQL(ctx context.Context) (graph.Factory, error) {
 	if env := c.Source.Postgres.Connection.FromEnv; cfg.ConnectionString == "" && env != "" {
 		cfg.ConnectionString = os.Getenv(env)
 	}
-	return postgres.New(ctx, cfg)
+	return postgresFactory(ctx, cfg)
 }

@@ -12,6 +12,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/raft-tech/syncd/internal/api"
 	"github.com/raft-tech/syncd/internal/helpers"
 	"github.com/raft-tech/syncd/internal/log"
@@ -76,7 +77,7 @@ var _ = Describe("Server", func() {
 						return handler(srv, server.ServerStreamWithContext(ss, ctx))
 					}),
 				)
-				api.RegisterSyncServer(gserver, server.New(server.Options{}))
+				api.RegisterSyncServer(gserver, server.New(server.Options{Metrics: prometheus.NewRegistry()}))
 				serverWait.Add(1)
 				go func() {
 					defer serverWait.Done()

@@ -6,12 +6,14 @@ client:
   name: alpha
   auth:
     tls:
-      ca:
-       - /path/to/ca.pem        # (optional) enables server authentication
-      crt: /path/to/client.pem  # (optional)
-      key: /path/to/client.key  # (optional)
+      # crt: client.crt  # (optional) path to PEM-encoded certificate; enables TLS client auth
+      # key: client.key  # path to PEM-encoded private key; required if crt is set
+      # ca: # (optional) PEM-encoded CA certificates
+      #   - /path/to/ca.pem
     preSharedKey:
       fromEnv: SYNCD_AUTH_PRESHARED_KEY
+  metrics:
+    listen: ":8080"
   peers:
     bravo:
       address: bravo.syncd.teamraft.com
@@ -25,7 +27,7 @@ client:
           filters:
             - key: name
               operator: In
-              values:
+              value:
                 - John Lennon
                 - Paul McCartney
                 - Ringo Starr
@@ -33,15 +35,13 @@ client:
         performers:
           filters:
             - key: label
-              operator: In
-              values:
-                - VeeJay
+              operator: Equals
+              value: VeeJay
         songs:
           filters:
             - key: publisher
-              operator: In
-              values:
-                - VeeJay
+              operator: Equals
+              value: VeeJay
 
 graph:
   source:

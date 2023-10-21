@@ -54,10 +54,37 @@ func Serve(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var sopts []grpc.ServerOption
+	var health *helpers.Probes
+	if h, err := helpers.Health(); err == nil {
+		health = h
+	} else {
+		return fail("error initializing health probes", err)
+	}
+
+	// Start the metrics server if configured
+	if addr := config.GetString("server.metrics.listen"); addr != "" {
+		logger.Debug("starting metric server", zap.String("addr", addr))
+		msc := health.Serve(addr)
+		if err := msc.Error(); err == nil {
+			logger.Debug("metric server started", zap.String("addr", addr))
+			defer func() {
+				logger.Debug("stopping metric server")
+				msc.Stop()
+				if e := msc.Error(); e == nil {
+					logger.Debug("metric server stopped")
+				} else {
+					logger.Error("metric server err")
+				}
+			}()
+		} else {
+			return fail("error starting metrics server", err)
+		}
+	}
+
+	var grpcOpts []grpc.ServerOption
 	if config.IsSet("server.tls.crt") {
 		if cfg, e := helpers.ServerTLSConfig(config.Sub("server.tls")); e == nil {
-			sopts = append(sopts, grpc.Creds(credentials.NewTLS(cfg)))
+			grpcOpts = append(grpcOpts, grpc.Creds(credentials.NewTLS(cfg)))
 			logger := logger
 			if len(cfg.Certificates) > 0 {
 				if crt, err := x509.ParseCertificate(cfg.Certificates[0].Certificate[0]); err == nil {
@@ -68,6 +95,13 @@ func Serve(cmd *cobra.Command, args []string) error {
 		} else {
 			return fail("error configuring tls", e)
 		}
+	}
+
+	var models helpers.ModelMap
+	if m, err := helpers.Models(config.Sub("server.models")); err == nil {
+		models = m
+	} else {
+		return fail("error parsing server models", err)
 	}
 
 	if ggraph, closer, e := helpers.Graph(ctx, config.Sub("graph")); e == nil {
@@ -81,7 +115,10 @@ func Serve(cmd *cobra.Command, args []string) error {
 			}
 		}()
 		for k, v := range ggraph {
-			server.RegisterGraph(k, v)
+			if m, ok := models[k]; ok {
+				server.RegisterGraph(k, v)
+				server.RegisterFilters(k, m.Filters...)
+			}
 		}
 	} else {
 		return fail("error initializing graph", e)
@@ -110,10 +147,10 @@ func Serve(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	sopts = append(sopts, grpc.ChainUnaryInterceptor(uics...), grpc.ChainStreamInterceptor(sics...))
+	grpcOpts = append(grpcOpts, grpc.ChainUnaryInterceptor(uics...), grpc.ChainStreamInterceptor(sics...))
 
-	srv := grpc.NewServer(sopts...)
-	api.RegisterSyncServer(srv, server.New(server.DefaultOptions))
+	srv := grpc.NewServer(grpcOpts...)
+	api.RegisterSyncServer(srv, server.New(server.Options{Metrics: health.Registry}))
 
 	var listener net.Listener
 	if l, err := net.Listen("tcp", config.GetString("server.listen")); err == nil {
@@ -133,16 +170,19 @@ func Serve(cmd *cobra.Command, args []string) error {
 			out <- e
 		}
 	}(srvErr)
+	logger.Debug("ready")
+	health.Ready()
 
 	select {
 	case err := <-srvErr:
 		return fail("server error", err)
 	case <-ctx.Done():
-		logger.Info("shutting down")
+		health.NotReady()
+		logger.Info("shutting down server")
 		cancel()
 		srv.GracefulStop()
 	}
 	wg.Wait()
-	logger.Info("shutdown complete")
+	logger.Info("server stopped")
 	return nil
 }

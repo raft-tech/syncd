@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/raft-tech/syncd/pkg/graph"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -11,7 +12,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type GraphResolver func(string) (graph.Graph, bool)
+const (
+	PSK_METADATA_KEY = "x-syncd-presharedkey"
+)
 
 var (
 	graphs                             = make(map[string]graph.Graph)
@@ -20,40 +23,24 @@ var (
 		g, ok := graphs[k]
 		return g, ok
 	}
+	defaultFilters       Filters       = map[string][]graph.Filter{}
+	defaultPeerValidator PeerValidator = func(string, string) bool {
+		return true
+	}
 	DefaultOptions = Options{}
 )
 
-func RegisterGraph(key string, graph graph.Graph) bool {
-	graphsLock.Lock()
-	defer graphsLock.Unlock()
-	if _, ok := graphs[key]; !ok {
-		graphs[key] = graph
-		return true
-	} else {
-		return false
-	}
-}
-
-func DeregisterGraph(key string) bool {
-	graphsLock.Lock()
-	defer graphsLock.Unlock()
-	if _, ok := graphs[key]; ok {
-		delete(graphs, key)
-		return true
-	} else {
-		return false
-	}
-}
+type GraphResolver func(string) (graph.Graph, bool)
 
 type PeerValidator func(string, string) bool
 
-var defaultPeerValidator = func(string, string) bool {
-	return true
-}
+type Filters map[string][]graph.Filter
 
 type Options struct {
 	GraphResolver GraphResolver
+	Filters       Filters
 	PeerValidator PeerValidator
+	Metrics       prometheus.Registerer
 }
 
 func (opt *Options) apply(srv *server) {
@@ -67,11 +54,47 @@ func (opt *Options) apply(srv *server) {
 	if pv := opt.PeerValidator; pv != nil {
 		srv.peerValidator = pv
 	}
+
+	srv.filters = defaultFilters
+	if f := opt.Filters; f != nil {
+		srv.filters = f
+	}
 }
 
-const (
-	PSK_METADATA_KEY = "x-syncd-presharedkey"
-)
+func RegisterGraph(model string, graph graph.Graph) bool {
+	graphsLock.Lock()
+	defer graphsLock.Unlock()
+	if _, ok := graphs[model]; !ok {
+		graphs[model] = graph
+		return true
+	} else {
+		return false
+	}
+}
+
+func DeregisterGraph(model string) bool {
+	graphsLock.Lock()
+	defer graphsLock.Unlock()
+	if _, ok := graphs[model]; ok {
+		delete(graphs, model)
+		return true
+	} else {
+		return false
+	}
+}
+
+func RegisterFilters(model string, filters ...graph.Filter) {
+	if len(filters) > 0 {
+		defaultFilters[model] = append(defaultFilters[model], filters...)
+	}
+}
+
+func DeregisterAllFilters(model string) (ok bool) {
+	if _, ok = defaultFilters[model]; ok {
+		delete(defaultFilters, model)
+	}
+	return
+}
 
 type PreSharedKey string
 

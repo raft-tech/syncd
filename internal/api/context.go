@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -37,4 +38,11 @@ func MustGetMetadataFromContext(ctx context.Context) Metadata {
 type Metadata struct {
 	Peer  string
 	Model string
+}
+
+func (md *Metadata) MetricLabels() prometheus.Labels {
+	return map[string]string{
+		"peer":  md.Peer,
+		"model": md.Model,
+	}
 }

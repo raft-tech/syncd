@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/raft-tech/syncd/internal/api"
 	"github.com/raft-tech/syncd/internal/log"
 	"github.com/raft-tech/syncd/pkg/graph"
@@ -17,6 +18,46 @@ import (
 func New(opt Options) api.SyncServer {
 	srv := &server{}
 	opt.apply(srv)
+
+	labels := []string{"peer", "model"}
+	srv.metrics = metrics{
+		invalidPeerModel: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "syncd",
+			Subsystem: "server",
+			Name:      "invalid_peers",
+		}),
+		modelsNotFound: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "syncd",
+			Subsystem: "server",
+			Name:      "unknown_models",
+		}),
+		errors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "syncd",
+			Subsystem: "server",
+			Name:      "errors",
+		}, labels),
+		checks: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "syncd",
+			Subsystem: "server",
+			Name:      "checks",
+		}, labels),
+		recordsPulled: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "syncd",
+			Subsystem: "server",
+			Name:      "records_pulled",
+		}, labels),
+		recordsPushed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "syncd",
+			Subsystem: "server",
+			Name:      "records_pushed",
+		}, labels),
+		recordsAcknowledged: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "syncd",
+			Subsystem: "server",
+			Name:      "records_acknowledged",
+		}, labels),
+	}
+
 	return srv
 }
 
@@ -24,15 +65,48 @@ type server struct {
 	api.UnimplementedSyncServer
 	lookup        GraphResolver
 	peerValidator PeerValidator
+	filters       Filters
+	metrics       metrics
+}
+
+type metrics struct {
+	invalidPeerModel prometheus.Counter
+	modelsNotFound   prometheus.Counter
+	errors           interface {
+		With(labels prometheus.Labels) prometheus.Counter
+	}
+	checks interface {
+		With(labels prometheus.Labels) prometheus.Counter
+	}
+	recordsPulled interface {
+		With(labels prometheus.Labels) prometheus.Counter
+	}
+	recordsPushed interface {
+		With(labels prometheus.Labels) prometheus.Counter
+	}
+	recordsAcknowledged interface {
+		With(labels prometheus.Labels) prometheus.Counter
+	}
+}
+
+func (s *server) unknownModel() error {
+	s.metrics.modelsNotFound.Add(1)
+	return status.Error(codes.NotFound, "unknown model")
+}
+
+func (s *server) invalidModelForPeer() error {
+	s.metrics.invalidPeerModel.Add(1)
+	return status.Error(codes.NotFound, "unknown model")
 }
 
 func (s *server) Check(ctx context.Context, info *api.Info) (*api.Info, error) {
 	md, logger := setUp(ctx, "check")
 	if md.Model != "" && !s.peerValidator(md.Peer, md.Model) {
 		logger.Info("peer requested unknown or unbound model")
-		return nil, status.Error(codes.NotFound, "unknown model")
+		return nil, s.invalidModelForPeer()
 	}
 	logger.Debug("check successful")
+	s.metrics.checks.With(md.MetricLabels()).Add(1)
 	return api.CheckInfo(), nil
 }
 
@@ -41,13 +115,13 @@ func (s *server) Push(ps api.Sync_PushServer) error {
 	ctx := ps.Context()
 	md, logger := setUp(ctx, "push")
 	if !s.peerValidator(md.Peer, md.Model) {
-		return status.Error(codes.NotFound, "unknown model")
+		return s.invalidModelForPeer()
 	}
 	var dst graph.Destination
 	if g, ok := s.lookup(md.Model); ok {
 		dst = g.Destination()
 	} else {
-		return status.Error(codes.NotFound, "unknown model")
+		return s.unknownModel()
 	}
 
 	in := make(chan *api.Record)
@@ -83,7 +157,9 @@ func (s *server) Push(ps api.Sync_PushServer) error {
 		select {
 		case rs, ok := <-out:
 			if ok {
-				if err := ps.Send(rs); err != nil {
+				if err := ps.Send(rs); err == nil {
+					s.metrics.recordsPushed.With(md.MetricLabels()).Add(1)
+				} else {
 					logger.Error("error sending record status", zap.Error(err))
 				}
 			} else {
@@ -116,13 +192,13 @@ func (s *server) Pull(_ *api.PullRequest, ps api.Sync_PullServer) error {
 	ctx := ps.Context()
 	md, logger := setUp(ctx, "pull")
 	if !s.peerValidator(md.Peer, md.Model) {
-		return status.Error(codes.NotFound, "unknown model")
+		return s.invalidModelForPeer()
 	}
 	var src graph.Source
 	if g, ok := s.lookup(md.Model); ok {
-		src = g.Source(md.Peer) // TODO add filters
+		src = g.Source(md.Peer, s.filters[md.Model]...)
 	} else {
-		return status.Error(codes.NotFound, "unknown model")
+		return s.unknownModel()
 	}
 
 	in := src.Fetch(ctx)
@@ -130,7 +206,10 @@ func (s *server) Pull(_ *api.PullRequest, ps api.Sync_PullServer) error {
 		select {
 		case r, ok := <-in:
 			if ok {
-				if err := ps.Send(r); err != nil {
+				if err := ps.Send(r); err == nil {
+					s.metrics.recordsPushed.With(md.MetricLabels()).Add(1)
+				} else {
+					s.metrics.errors.With(md.MetricLabels()).Add(1)
 					logger.Error("error sending record", zap.Error(err))
 				}
 			} else {
@@ -153,19 +232,21 @@ func (s *server) Acknowledge(as api.Sync_AcknowledgeServer) error {
 	ctx := as.Context()
 	md, logger := setUp(ctx, "acknowledge")
 	if !s.peerValidator(md.Peer, md.Model) {
-		return status.Error(codes.NotFound, "unknown model")
+		return s.invalidModelForPeer()
 	}
 	var src graph.Source
 	if g, ok := s.lookup(md.Model); ok {
 		src = g.Source(md.Peer) // TODO add filters
 	} else {
-		return status.Error(codes.NotFound, "unknown model")
+		return s.unknownModel()
 	}
 
 	for done := false; !done; {
 		rec, err := as.Recv()
 		if err == nil {
-			if err = src.SetStatus(ctx, rec); err != nil {
+			if err = src.SetStatus(ctx, rec); err == nil {
+				s.metrics.recordsAcknowledged.With(md.MetricLabels()).Add(1)
+			} else {
 				logger.Error("error setting record status", zap.Error(err))
 				return status.Error(codes.Internal, "unhandled error")
 			}

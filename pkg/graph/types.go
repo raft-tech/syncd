@@ -54,4 +54,7 @@ type FilterOperator string
 
 const (
 	GreaterThanFilterOperator FilterOperator = "GreaterThan"
+	EqualFilterOperator       FilterOperator = "Equal"
+	InOperator                FilterOperator = "In"
+	NotInOperator             FilterOperator = "NotIn"
 )

@@ -23,7 +23,7 @@ server:
       filters:
         - key: name
           operator: In
-          values:
+          value:
             - John Lennon
             - Paul McCartney
             - Ringo Starr
@@ -31,12 +31,10 @@ server:
     performers:
       filters:
         - key: label
-          operator: In
-          values:
-            - VeeJay
+          operator: Equal
+          value: VeeJay
     songs:
       filters:
         - key: publisher
-          operator: In
-          values:
-            - VeeJay
+          operator: Equal
+          value: VeeJay

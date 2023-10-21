@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"sync"
 
@@ -16,63 +19,107 @@ import (
 )
 
 func NewPush() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		RunE:  PushOrPull,
 		Short: "Push data to remote peers",
 		Use:   "push [FLAGS]",
 	}
+	cmd.PersistentFlags().Duration("continuous", 0, "--continuous DURATION; push continuously, pausing DURATION between")
+	return cmd
 }
 
 func NewPull() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		RunE:  PushOrPull,
 		Short: "Pull data from remote peers",
 		Use:   "pull [FLAGS]",
 	}
+	cmd.PersistentFlags().Duration("continuous", 0, "--continuous DURATION; pull continuously, pausing DURATION between")
+	return cmd
 }
 
-func PushOrPull(cmd *cobra.Command, args []string) (err error) {
+func PushOrPull(cmd *cobra.Command, args []string) error {
+
+	ctx := cmd.Context()
 
 	var config *viper.Viper
-	if config, err = helpers.Config(cmd); err != nil {
-		return
+	if c, err := helpers.Config(cmd); err == nil {
+		config = c
+	} else {
+		fmt.Printf("error parsing config file: %v\n", err)
+		return err
 	}
 
 	var logger *zap.Logger
-	if logger, err = helpers.Logger(cmd.OutOrStdout(), config.Sub("logging")); err != nil {
-		return
+	if l, err := helpers.Logger(cmd.OutOrStdout(), config.Sub("logging")); err == nil {
+		logger = l
+		ctx = log.NewContext(ctx, l)
+	} else {
+		fmt.Printf("error initializing logger: %v\n", err)
+		return err
+	}
+
+	fail := func(msg string, err error) error {
+		logger.Error(msg, zap.Error(err))
+		return err
+	}
+
+	//var continuous *time.Duration
+	if c, err := cmd.Flags().GetDuration("continuous"); c > 0 && err == nil {
+		//continuous = &c
+		logger.Info("continuous enabled", zap.Duration("continuous", c))
+		if addr := config.GetString("client.metrics.listen"); addr != "" {
+			var health *helpers.Probes
+			if health, err = helpers.Health(); err != nil {
+				return fail("error configuring metrics server", err)
+			}
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				if listener, e := net.Listen("tcp", addr); err == nil {
+					wg.Done()
+					logger.Debug("started metrics server", zap.String("addr", addr))
+					_ = http.Serve(listener, health.Http())
+				} else {
+					err = e
+					wg.Done()
+				}
+			}()
+			wg.Wait()
+			if err != nil {
+				return fail("error starting metrics server", err)
+			}
+		}
 	}
 
 	var auth ClientAuth
-	if err = config.Unmarshal(&auth); err == nil {
-		err = auth.Validate()
-	}
-	if err != nil {
-		logger.Error("error parsing client auth", zap.Error(err))
-		err = helpers.WrapError(err, 2)
-		return
+	if err := config.Unmarshal(&auth); err == nil {
+		if err = auth.Validate(); err != nil {
+			return fail("invalid client auth configuration", err)
+		}
+	} else {
+		return fail("error parsing client auth configuration", err)
 	}
 	dopt := auth.DialOptions()
 
 	var peers map[string]*Peer
-	if err = config.Unmarshal(peers); err == nil {
-		logger.Error("error parsing client peer list", zap.Error(err))
-		err = helpers.WrapError(err, 2)
-		return
+	if err := config.Unmarshal(peers); err == nil {
+		return fail("error parsing client peer list", helpers.WrapError(err, 2))
 	}
 
 	var graphs map[string]graph.Graph
 	var closer func(context.Context) error
 	logger.Debug("initializing graph")
-	if graphs, closer, err = helpers.Graph(cmd.Context(), config.Sub("graph")); err == nil {
+	if g, c, err := helpers.Graph(cmd.Context(), config.Sub("graph")); err == nil {
+		graphs = g
+		closer = c
 		defer func() {
 			if e := closer(cmd.Context()); e != nil {
 				logger.Error("error closing graph factory", zap.Error(e))
 			}
 		}()
 	} else {
-		logger.Error("error initializing graph", zap.Error(err))
-		return
+		return fail("error initializing graph", err)
 	}
 	logger.Info("graph initialized")
 
@@ -84,8 +131,7 @@ func PushOrPull(cmd *cobra.Command, args []string) (err error) {
 		go func(ctx context.Context, pname string, peer *Peer, out chan<- error) {
 
 			logger := log.FromContext(ctx).With(zap.String("peer", pname), zap.String("as", auth.Name))
-			var syncd client.Client
-			syncd, err = client.New(ctx, peer.Address, client.WithDialOptions(dopt...))
+			syncd, err := client.New(ctx, peer.Address, client.WithDialOptions(dopt...))
 			if err != nil {
 				logger.Error("error initializing client", zap.Error(err))
 				return
@@ -123,11 +169,12 @@ func PushOrPull(cmd *cobra.Command, args []string) (err error) {
 
 		}(cmd.Context(), name, peer, errs)
 	}
+	var err error
 	for e := range errs {
 		err = e
 	}
 	wg.Wait()
-	return
+	return err
 }
 
 func doPush(ctx context.Context, syncd client.Client, name string, peer *Peer, as string, graphs map[string]graph.Graph) (err error) {
