@@ -6,9 +6,11 @@ import (
 	"io"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/raft-tech/syncd/internal/api"
 	"github.com/raft-tech/syncd/internal/log"
 	"github.com/raft-tech/syncd/pkg/graph"
+	"github.com/raft-tech/syncd/pkg/metrics"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -27,7 +29,9 @@ type Client interface {
 
 func New(ctx context.Context, target string, opt ...ClientOption) (Client, error) {
 	c := &client{
+		serverName:    target,
 		serverAddress: target,
+		metrics:       metrics.ForClient(nil), // Default to the NOP collector
 	}
 	for i := range opt {
 		if err := opt[i](c); err != nil {
@@ -39,10 +43,19 @@ func New(ctx context.Context, target string, opt ...ClientOption) (Client, error
 
 type client struct {
 	sync.RWMutex
+	serverName    string
 	serverAddress string
 	dialOpts      []grpc.DialOption
 	conn          *grpc.ClientConn
 	sync          api.SyncClient
+	metrics       metrics.Collector
+}
+
+func (c *client) collector(model string) metrics.RequestMetricsCollector {
+	return c.metrics.WithLabels(prometheus.Labels{
+		"peer":  c.serverName,
+		"model": model,
+	})
 }
 
 func (c *client) Connect(ctx context.Context) error {
@@ -63,7 +76,6 @@ func (c *client) Connect(ctx context.Context) error {
 		}
 		return err
 	}
-
 }
 
 func (c *client) Check(ctx context.Context, model string, as string) (bool, error) {
@@ -80,8 +92,10 @@ func (c *client) Check(ctx context.Context, model string, as string) (bool, erro
 	logger.Debug("checking peer")
 	if i, e := c.sync.Check(metadata.AppendToOutgoingContext(ctx, "peer", as, "model", model), api.CheckInfo()); e == nil {
 		logger.Info("peer check successful", zap.Uint32("peerApiVersion", i.ApiVersion))
+		c.collector(model).Checked()
 		return true, nil
 	} else {
+		c.collector(model).Erred()
 		return false, parseError(logger, e)
 	}
 }
@@ -100,12 +114,14 @@ func (c *client) Push(ctx context.Context, model string, from graph.Source, as s
 	}
 
 	// set up to push
+	rmetrics := c.collector(model)
 	logger := log.FromContext(ctx).With(zap.String("peer", c.serverAddress), zap.String("as", as), zap.String("call", "push"))
 	logger.Debug("pushing to peer")
 	var push api.Sync_PushClient
 	if pc, err := c.sync.Push(metadata.AppendToOutgoingContext(ctx, "peer", as, "model", model)); err == nil {
 		push = pc
 	} else {
+		rmetrics.Erred()
 		return parseError(logger, err)
 	}
 
@@ -116,7 +132,9 @@ func (c *client) Push(ctx context.Context, model string, from graph.Source, as s
 		defer wg.Done()
 		for done := false; !done; {
 			if status, err := push.Recv(); err == nil {
+				rmetrics.Acknowledged()
 				if err = from.SetStatus(ctx, status); err != nil {
+					rmetrics.Erred()
 					logger.Error("error setting record status", zap.Error(err))
 				}
 			} else {
@@ -129,6 +147,7 @@ func (c *client) Push(ctx context.Context, model string, from graph.Source, as s
 				case errors.Is(err, context.DeadlineExceeded):
 					logger.Info("context canceled")
 				default:
+					rmetrics.Erred()
 					logger.Error("error receiving record statuses", zap.Error(err))
 				}
 			}
@@ -141,7 +160,10 @@ func (c *client) Push(ctx context.Context, model string, from graph.Source, as s
 		select {
 		case d, ok := <-src:
 			if ok {
-				if e := push.Send(d); e != nil {
+				if e := push.Send(d); e == nil {
+					rmetrics.Pushed()
+				} else {
+					rmetrics.Erred()
 					logger.Error("error sending record", zap.Error(e))
 				}
 			} else {
@@ -156,6 +178,7 @@ func (c *client) Push(ctx context.Context, model string, from graph.Source, as s
 		}
 	}
 	if e := push.CloseSend(); e != nil {
+		rmetrics.Erred()
 		logger.Error("error closing send", zap.Error(e))
 	}
 	wg.Wait() // finish receiving record status
@@ -176,9 +199,8 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 		panic("Connect() must be called before client operations")
 	}
 
-	var rcount, scount int
-
 	// set up to pull
+	rmetrics := c.collector(model)
 	logger := log.FromContext(ctx).With(zap.String("peer", c.serverAddress), zap.String("as", as), zap.String("call", "pull"))
 	logger.Debug("initiating pull request")
 	var pull api.Sync_PullClient
@@ -186,6 +208,7 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 		pull = pc
 		logger.Info("ready to pull")
 	} else {
+		rmetrics.Erred()
 		return parseError(logger, err)
 	}
 
@@ -199,6 +222,7 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 			}
 		}()
 	} else {
+		rmetrics.Erred()
 		return parseError(logger, err)
 	}
 
@@ -215,7 +239,7 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 				logger.Debug("record received from peer")
 				select {
 				case records <- rec:
-					rcount++
+					rmetrics.Pulled()
 					logger.Debug("record sent to destination")
 				case <-ctx.Done():
 					logger.Info("context canceled")
@@ -231,6 +255,7 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 				case errors.Is(err, context.DeadlineExceeded):
 					logger.Info("context canceled while receiving")
 				default:
+					rmetrics.Erred()
 					logger.Error("error receiving records", zap.Error(err))
 				}
 			}
@@ -246,9 +271,10 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 				logger := logger.With(zap.String("id", s.Id), zap.String("version", s.Version))
 				logger.Debug("sending status")
 				if err := ack.Send(s); err == nil {
-					scount++
+					rmetrics.Acknowledged()
 					logger.Debug("status sent")
 				} else {
+					rmetrics.Erred()
 					logger.Error("error sending record status", zap.Error(err))
 				}
 			} else {
@@ -267,6 +293,7 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 	if err := ack.CloseSend(); err == nil {
 		logger.Debug("ack channel closed")
 	} else {
+		rmetrics.Erred()
 		logger.Error("error closing ack channel", zap.Error(err))
 	}
 

@@ -31,28 +31,34 @@ func tlsConfig(typ tlsConfigType, opts *viper.Viper) (config *tls.Config, err er
 	}
 
 	config = new(tls.Config)
+	fail := func(e error) {
+		config = nil
+		if _, ok := e.(interface{ Code() int }); !ok {
+			e = WrapError(e, 2)
+		}
+		err = e
+		return
+	}
 
 	if flagOpts.CertificateFile != "" {
 		var crt, key []byte
 		if crt, err = os.ReadFile(flagOpts.CertificateFile); err != nil {
-			config = nil
+			fail(err)
 			return
 		}
 		if flagOpts.KeyFile == "" {
-			config = nil
-			err = NewError("key file is required if certificate file is defined", 2)
+			fail(NewError("key file is required if certificate file is defined", 2))
 			return
 		} else if key, err = os.ReadFile(flagOpts.KeyFile); err != nil {
-			config = nil
-			err = WrapError(err, 2)
+			fail(err)
 			return
 		}
 
 		if certificate, e := tls.X509KeyPair(crt, key); e == nil {
 			config.Certificates = []tls.Certificate{certificate}
 		} else {
-			config = nil
-			err = WrapError(e, 2)
+			fail(e)
+			return
 		}
 	}
 
@@ -64,8 +70,8 @@ func tlsConfig(typ tlsConfigType, opts *viper.Viper) (config *tls.Config, err er
 				return
 			}
 			if !pool.AppendCertsFromPEM(crt) {
-				config = nil
-				err = NewError("invalid certificate: "+c, 2)
+				fail(NewError("invalid certificate: "+c, 2))
+				return
 			}
 		}
 		switch typ {

@@ -3,15 +3,15 @@ logging:
   level: debug
 
 client:
-  name: alpha
   auth:
+    name: alpha
+    preSharedKey:
+      fromEnv: SYNCD_AUTH_PRESHARED_KEY
     tls:
       # crt: client.crt  # (optional) path to PEM-encoded certificate; enables TLS client auth
       # key: client.key  # path to PEM-encoded private key; required if crt is set
       # ca: # (optional) PEM-encoded CA certificates
       #   - /path/to/ca.pem
-    preSharedKey:
-      fromEnv: SYNCD_AUTH_PRESHARED_KEY
   metrics:
     listen: ":8080"
   peers:

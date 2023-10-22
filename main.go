@@ -23,7 +23,7 @@ func main() {
 	defer stop()
 
 	// Run the root command
-	if err := cmd.New(cmd.DefaultOptions).ExecuteContext(ctx); err != nil {
+	if err := cmd.New().ExecuteContext(ctx); err != nil {
 		code := 1
 		if err, ok := err.(interface{ Code() int }); ok {
 			code = err.Code()

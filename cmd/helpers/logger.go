@@ -14,11 +14,18 @@ import (
 func Logger(writer io.Writer, cfg *viper.Viper) (*zap.Logger, error) {
 
 	opt := log.DefaultOptions
-	opt.Out = writer
-	opt.Format = cfg.GetString("format") // Default is text, set by PersistentFlags on root command
+	level := "DEBUG"
+	if cfg != nil {
+		if f := cfg.GetString("format"); f != "" {
+			opt.Format = f
+		}
+		if l := cfg.GetString("level"); l != "" {
+			level = strings.ToUpper(l)
+		}
+	}
 
 	// Set log level
-	switch l := strings.ToUpper(cfg.GetString("level")); l {
+	switch level {
 	case "DEBUG":
 		opt.Level = zapcore.DebugLevel
 	case "INFO":
@@ -30,7 +37,7 @@ func Logger(writer io.Writer, cfg *viper.Viper) (*zap.Logger, error) {
 	case "FATAL":
 		opt.Level = zapcore.FatalLevel
 	default:
-		return nil, NewError(fmt.Sprintf("unrecognized log level: %s", l), 2)
+		return nil, NewError(fmt.Sprintf("unrecognized log level: %s", level), 2)
 	}
 
 	// Build logger from parsed options

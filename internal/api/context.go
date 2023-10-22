@@ -36,13 +36,17 @@ func MustGetMetadataFromContext(ctx context.Context) Metadata {
 }
 
 type Metadata struct {
-	Peer  string
-	Model string
+	Peer   string
+	Model  string
+	labels prometheus.Labels
 }
 
 func (md *Metadata) MetricLabels() prometheus.Labels {
-	return map[string]string{
-		"peer":  md.Peer,
-		"model": md.Model,
+	if md.labels == nil {
+		md.labels = map[string]string{
+			"peer":  md.Peer,
+			"model": md.Model,
+		}
 	}
+	return md.labels
 }

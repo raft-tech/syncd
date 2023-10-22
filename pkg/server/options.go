@@ -6,6 +6,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/raft-tech/syncd/pkg/graph"
+	"github.com/raft-tech/syncd/pkg/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -59,6 +60,8 @@ func (opt *Options) apply(srv *server) {
 	if f := opt.Filters; f != nil {
 		srv.filters = f
 	}
+
+	srv.metrics = metrics.ForServer(opt.Metrics)
 }
 
 func RegisterGraph(model string, graph graph.Graph) bool {

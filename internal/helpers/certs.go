@@ -35,7 +35,9 @@ func SelfSignedCertificate(cn string, sans ...string) (*tls.Certificate, error) 
 	}
 
 	if b, e := x509.CreateCertificate(rand.Reader, crt, crt, &key.PublicKey, key); e == nil {
-		crt.Raw = b
+		if crt, e = x509.ParseCertificate(b); e != nil {
+			return nil, e
+		}
 		return &tls.Certificate{
 			Certificate: [][]byte{b},
 			PrivateKey:  key,
