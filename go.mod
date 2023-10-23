@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/jackc/pgx/v5 v5.4.3
-	github.com/onsi/ginkgo/v2 v2.12.0
+	github.com/onsi/ginkgo/v2 v2.13.0
 	github.com/onsi/gomega v1.27.10
 	github.com/prometheus/client_golang v1.17.0
 	github.com/spf13/cobra v1.7.0
