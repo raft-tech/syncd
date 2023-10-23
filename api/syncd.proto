@@ -1,0 +1,74 @@
+/*
+ * Copyright (c) 2023. Raft, LLC
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+syntax = "proto3";
+package syncd;
+
+option go_package = "github.com/raft-tech/syncd/internal/api";
+
+service Sync {
+  rpc Check (Info) returns (Info);
+  rpc Push (stream Record) returns (stream RecordStatus);
+  rpc Pull (PullRequest) returns (stream Record);
+  rpc Acknowledge(stream RecordStatus) returns (AcknowledgeResponse);
+}
+
+message Info {
+  uint32 api_version = 1;
+}
+
+message Record {
+  map<string, Data> fields = 1;
+}
+
+message RecordStatus {
+  string id = 1;
+  string version = 2;
+  optional uint32 error = 3;
+  optional string error_field = 4;
+  map<string, uint64> sequences = 5;
+}
+
+enum Error {
+  SERVER_ERROR = 0;
+  MALFORMED_RECORD = 1;
+}
+
+enum DataType {
+  UINT = 0; // encoded as uint64
+  INT = 1; // encoded as sint64
+  FLOAT = 2; // encoded as double
+  BOOL = 3; // encoded as bool
+  STRING = 4; // encoded as string
+  BYTES = 5; // encoded as bytes
+  RECORD = 16;
+}
+
+message Data {
+  DataType type = 1;
+  bool is_list = 2;
+  repeated uint64 uints = 3;
+  repeated sint64 ints = 4;
+  repeated double floats = 5;
+  repeated bool bools = 6;
+  repeated string strings = 7;
+  repeated bytes bytes = 8;
+  repeated Record records = 15;
+}
+
+message PullRequest{}
+message AcknowledgeResponse{}

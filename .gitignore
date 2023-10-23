@@ -1,0 +1,7 @@
+*.iml
+
+/.idea
+/server.crt
+/server.key
+/syncd
+/cmd/build/
