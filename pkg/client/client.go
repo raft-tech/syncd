@@ -13,6 +13,7 @@ import (
 	"github.com/raft-tech/syncd/pkg/metrics"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -206,7 +207,6 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 	var pull api.Sync_PullClient
 	if pc, err := c.sync.Pull(metadata.AppendToOutgoingContext(ctx, "peer", as, "model", model), &api.PullRequest{}); err == nil {
 		pull = pc
-		logger.Info("ready to pull")
 	} else {
 		rmetrics.Erred()
 		return parseError(logger, err)
@@ -255,8 +255,12 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 				case errors.Is(err, context.DeadlineExceeded):
 					logger.Info("context canceled while receiving")
 				default:
-					rmetrics.Erred()
-					logger.Error("error receiving records", zap.Error(err))
+					if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+						logger.Info("context canceled while receiving")
+					} else {
+						rmetrics.Erred()
+						logger.Error("error receiving records", zap.Error(err))
+					}
 				}
 			}
 		}
@@ -279,7 +283,7 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 				}
 			} else {
 				done = true
-				logger.Debug("completed send")
+				logger.Debug("completed acknowledgements")
 			}
 		case <-ctx.Done():
 			logger.Info("context canceled while sending acks")

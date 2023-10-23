@@ -16,6 +16,7 @@ import (
 func Health() (*Probes, error) {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector())
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return &Probes{
 		Registry: reg,
 	}, nil

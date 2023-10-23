@@ -3,9 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -17,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 func NewPush() *cobra.Command {
@@ -66,35 +64,15 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 	}
 
 	var continuous time.Duration
-	if c, err := cmd.Flags().GetDuration("continuous"); c > 0 && err == nil {
+	if c, e := cmd.Flags().GetDuration("continuous"); c > 0 && e == nil {
 		continuous = c
 		logger.Info("continuous enabled", zap.Duration("continuous", c))
-		if addr := config.GetString("client.metrics.listen"); addr != "" {
-			var health *helpers.Probes
-			if health, err = helpers.Health(); err != nil {
-				return fail("error configuring metrics server", err)
-			}
-			wg := sync.WaitGroup{}
-			wg.Add(1)
-			go func() {
-				if listener, e := net.Listen("tcp", addr); err == nil {
-					wg.Done()
-					logger.Debug("started metrics server", zap.String("addr", addr))
-					_ = http.Serve(listener, health.Http())
-				} else {
-					err = e
-					wg.Done()
-				}
-			}()
-			wg.Wait()
-			if err != nil {
-				return fail("error starting metrics server", err)
-			}
-		}
+	} else if e != nil {
+		return fail("error setting continuous pause duration", e)
 	}
 
 	var clientConfig Client
-	if err := config.Unmarshal(&clientConfig); err == nil {
+	if err := config.Sub("client").Unmarshal(&clientConfig); err == nil {
 		if err = clientConfig.Validate(); err != nil {
 			return fail("invalid client configuration", err)
 		}
@@ -102,7 +80,19 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 		return fail("error parsing client configuration", err)
 	}
 
-	copt := []client.ClientOption{client.WithDialOptions(clientConfig.DialOptions()...)}
+	var dopt []grpc.DialOption
+
+	if tcfg, err := helpers.ClientTLSConfig(clientConfig.Auth.TLS); err == nil {
+		dopt = append(dopt, grpc.WithTransportCredentials(credentials.NewTLS(tcfg)))
+	} else {
+		return fail("error creating TLS credentials", err)
+	}
+
+	if psk := clientConfig.Auth.PreSharedKey.GetValue(); psk != "" {
+		dopt = append(dopt, client.WithPreSharedKey(psk))
+	}
+
+	copt := []client.ClientOption{client.WithDialOptions(dopt...)}
 	if addr := config.GetString("client.metrics.listen"); addr != "" {
 		if continuous == 0 {
 			logger.Info("metrics server enabled but --continuous not set")
@@ -134,7 +124,7 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 	var graphs map[string]graph.Graph
 	var closer func(context.Context) error
 	logger.Debug("initializing graph")
-	if g, c, err := helpers.Graph(cmd.Context(), config.Sub("graph")); err == nil {
+	if g, c, err := helpers.Graph(ctx, config.Sub("graph")); err == nil {
 		graphs = g
 		closer = c
 		defer func() {
@@ -147,36 +137,49 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 	}
 	logger.Info("graph initialized")
 
-	errs := make(chan error)
-	defer close(errs)
+	var err error
 	wg := sync.WaitGroup{}
 	for name, peer := range clientConfig.Peers {
 		wg.Add(1)
-		go func(ctx context.Context, name string, peer *Peer, out chan<- error) {
-
+		go func(ctx context.Context, name string, peer *Peer) {
+			defer wg.Done()
 			logger := log.FromContext(ctx).With(zap.String("peer", name), zap.String("as", clientConfig.Name))
 			ctx = log.NewContext(ctx, logger)
 			defer func() {
 				if r := recover(); r != nil {
-					logger.Error("recovered from panic")
-					out <- helpers.NewError("panicked while syncing with "+name, 1)
+					logger := logger.WithOptions(zap.AddCallerSkip(1))
+					if s, ok := r.(string); ok {
+						logger.Error("panicked while syncing with peer", zap.String("panic", s))
+					} else {
+						logger.Error("panicked while syncing with peer")
+					}
+					err = helpers.NewError("panicked while syncing with "+name, 1)
 				}
-				wg.Done()
 			}()
 
-			syncd, err := client.New(ctx, peer.Address, copt...)
-			if err != nil {
-				logger.Error("error initializing client", zap.Error(err))
+			popts := copt
+			if peer.Authority != "" {
+				popts = make([]client.ClientOption, 0, len(copt)+1)
+				popts = append(popts, copt...)
+				popts = append(popts, client.WithDialOptions(grpc.WithAuthority(peer.Authority)))
+			}
+
+			syncd, e := client.New(ctx, peer.Address, popts...)
+			if e != nil {
+				logger.Error("error initializing client", zap.Error(e))
+				err = e
 				return
 			}
-			if err = syncd.Connect(ctx); err == nil {
+			if e = syncd.Connect(ctx); e == nil {
 				defer func() {
-					if err = syncd.Close(); err != nil {
+					if e = syncd.Close(); e != nil {
 						logger.Error("error closing peer connection", zap.Error(err))
+						err = e
 					}
 				}()
 			} else {
-				logger.Error("error connecting to peer", zap.Error(err))
+				logger.Error("error connecting to peer", zap.Error(e))
+				err = e
 				return
 			}
 
@@ -189,26 +192,27 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 					graphs: graphs,
 				}
 				if continuous > 0 {
-					wait := time.NewTimer(continuous)
 					for done := false; !done; {
 						_ = doPush(ctx, req)
+						wait := time.NewTimer(continuous)
 						select {
 						case <-wait.C:
 						case <-ctx.Done():
 							done = true
-							wait.Stop()
-							<-wait.C
+							if !wait.Stop() {
+								<-wait.C
+							}
 						}
 					}
-				} else if err := doPush(ctx, req); err != nil {
-					out <- err
+				} else if e = doPush(ctx, req); e != nil {
+					err = e
 				}
 			case "pull":
 				req := pullRequest{
 					client: syncd,
 					as:     clientConfig.Name,
-					models: nil,
-					graphs: nil,
+					models: peer.PullModels,
+					graphs: graphs,
 				}
 				if continuous > 0 {
 					for done := false; !done; {
@@ -218,22 +222,20 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 						case <-wait.C:
 						case <-ctx.Done():
 							done = true
-							wait.Stop()
-							<-wait.C
+							if !wait.Stop() {
+								<-wait.C
+							}
 						}
 					}
-				} else if err := doPull(ctx, req); err != nil {
-					out <- err
+				} else if e = doPull(ctx, req); e != nil {
+					err = e
 				}
 			default:
 				panic("unrecognized action " + cmd.CalledAs())
 			}
-		}(cmd.Context(), name, peer, errs)
+		}(ctx, name, peer)
 	}
-	var err error
-	for e := range errs {
-		err = e
-	}
+
 	wg.Wait()
 	return err
 }
@@ -241,7 +243,7 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 type pushRequest struct {
 	client client.Client
 	as     string
-	models map[string][]graph.Filter
+	models map[string]*PushModel
 	graphs map[string]graph.Graph
 }
 
@@ -259,19 +261,19 @@ func doPush(ctx context.Context, req pushRequest) (err error) {
 		done = true
 	}()
 
-	for model, filters := range req.models {
+	for name, model := range req.models {
 		if done {
 			logger.Info("push aborted due to canceled context")
 			break
 		}
-		if g, ok := req.graphs[model]; ok {
-			logger := logger.With(zap.String("model", model))
-			if e := req.client.Push(ctx, model, g.Source(model, filters...), req.as); e != nil {
+		if g, ok := req.graphs[name]; ok {
+			logger := logger.With(zap.String("model", name))
+			if e := req.client.Push(ctx, name, g.Source(name, model.Filters...), req.as); e != nil {
 				logger.Error("error pulling from peer", zap.Error(e))
 				err = e
 			}
 		} else {
-			logger.Error("undefined push model", zap.String("model", model))
+			logger.Error("undefined push model", zap.String("model", name))
 			err = helpers.NewError("undefined model used in peer push configuration", 2)
 		}
 	}
@@ -326,13 +328,12 @@ func doPull(ctx context.Context, req pullRequest) (err error) {
 }
 
 type Client struct {
-	Name         string
-	Peers        map[string]*Peer
-	PreSharedKey struct {
-		FromEnv string
-		Value   string
+	Name  string
+	Peers map[string]*Peer
+	Auth  struct {
+		PreSharedKey helpers.StringValue
+		TLS          helpers.TLS
 	}
-	TLS helpers.TLS
 }
 
 func (c *Client) Validate() error {
@@ -340,20 +341,13 @@ func (c *Client) Validate() error {
 	return nil
 }
 
-func (c *Client) DialOptions() (opt []grpc.DialOption) {
-	psk := c.PreSharedKey.Value
-	if e := c.PreSharedKey.FromEnv; psk == "" && e != "" {
-		psk = os.Getenv(e)
-	}
-	if psk != "" {
-		opt = append(opt, client.WithPreSharedKey(psk))
-	}
-	return
-}
-
 type Peer struct {
 	Address    string
 	Authority  string
-	PullModels []string
-	PushModels map[string][]graph.Filter
+	PullModels []string              `mapstructure:"pull"`
+	PushModels map[string]*PushModel `mapstructure:"push"`
+}
+
+type PushModel struct {
+	Filters []graph.Filter
 }

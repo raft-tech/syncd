@@ -44,6 +44,7 @@ func Serve(cmd *cobra.Command, args []string) error {
 	if l, err := helpers.Logger(cmd.OutOrStdout(), config.Sub("logging")); err == nil {
 		logger = l
 		ctx = log.NewContext(ctx, l)
+		defer func() { _ = l.Sync() }()
 	} else {
 		fmt.Printf("error initializing logger: %v\n", err)
 		return err
@@ -106,11 +107,14 @@ func Serve(cmd *cobra.Command, args []string) error {
 
 	if ggraph, closer, e := helpers.Graph(ctx, config.Sub("graph")); e == nil {
 		defer func() {
-			// ctx will most likely be canceled, so use the original cmd.Context()
+			// ctx will most likely be canceled, so use background context
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			ctx = log.NewContext(ctx, logger)
-			if e := closer(ctx); e != nil {
+			logger.Debug("closing graphs")
+			if e := closer(ctx); e == nil {
+				logger.Debug("graphs closed")
+			} else {
 				logger.Error("error closing graphs", zap.Error(e))
 			}
 		}()
@@ -169,12 +173,14 @@ func Serve(cmd *cobra.Command, args []string) error {
 		if e := srv.Serve(listener); e != nil {
 			out <- e
 		}
+		logger.Info("server stopped")
 	}(srvErr)
 	logger.Debug("ready")
 	health.Ready()
 
 	select {
 	case err := <-srvErr:
+		wg.Wait()
 		return fail("server error", err)
 	case <-ctx.Done():
 		health.NotReady()
@@ -183,6 +189,5 @@ func Serve(cmd *cobra.Command, args []string) error {
 		srv.GracefulStop()
 	}
 	wg.Wait()
-	logger.Info("server stopped")
 	return nil
 }

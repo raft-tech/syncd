@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"io"
 	"os"
 	"strings"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type loggerKey string
@@ -24,24 +25,26 @@ type Options struct {
 var nop = zap.NewNop()
 
 var DefaultOptions = Options{
-	Format: "json",
+	Format: "text",
 	Level:  zapcore.InfoLevel,
 	Out:    os.Stdout,
 }
 
 func NewLoggerWithOptions(opt Options) (*zap.Logger, error) {
+	var zopt []zap.Option
 	var enc zapcore.Encoder
 	switch e := strings.ToLower(opt.Format); e {
 	case "":
 		fallthrough
 	case "text":
 		enc = zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
+		zopt = append(zopt, zap.AddStacktrace(zap.ErrorLevel))
 	case "json":
 		enc = zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
 	default:
 		return nil, errors.New(fmt.Sprintf("unrecognized log format: %s", e))
 	}
-	return zap.New(zapcore.NewCore(enc, zapcore.AddSync(opt.Out), opt.Level)), nil
+	return zap.New(zapcore.NewCore(enc, zapcore.AddSync(opt.Out), opt.Level), zopt...), nil
 }
 
 func NewContext(ctx context.Context, l *zap.Logger) context.Context {

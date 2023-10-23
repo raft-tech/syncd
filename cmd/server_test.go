@@ -4,16 +4,21 @@ import (
 	"context"
 	"net/http"
 	"sync"
-	"testing"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/raft-tech/syncd/cmd"
 	"github.com/raft-tech/syncd/cmd/helpers"
+	"github.com/raft-tech/syncd/internal/api"
+	"github.com/raft-tech/syncd/pkg/client"
 	"github.com/raft-tech/syncd/pkg/graph"
 	"github.com/raft-tech/syncd/pkg/graph/postgres"
 	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 var _ = Describe("serve", func() {
@@ -22,20 +27,109 @@ var _ = Describe("serve", func() {
 
 	Context("with config", func() {
 
-		BeforeEach(func() {
-			args = append(args, "--config", "build/config.yaml")
-		})
-
 		Context("with mocks", func() {
 
-			factory := new(GraphFactory)
-			artists := new(Graph)
-			songs := new(Graph)
-			performers := new(Graph)
+			var factory *GraphFactory
+			var artists *Graph
+			var songs *Graph
+			var performers *Graph
+
+			Context("with server and client", Serial, func() {
+
+				var dialOpts []grpc.DialOption
+				var syncd api.SyncClient
+
+				When("the client is authenticated", func() {
+
+					It("handles checks", func(ctx context.Context) {
+						ctx = metadata.AppendToOutgoingContext(ctx, "peer", "client", "model", "artists")
+						if info, err := syncd.Check(ctx, &api.Info{ApiVersion: 1}); err == nil {
+							Expect(info.ApiVersion).To(Equal(uint32(1)))
+						} else {
+							Expect(err).NotTo(HaveOccurred())
+						}
+					})
+
+					BeforeEach(func(ctx context.Context) {
+						dialOpts = append(dialOpts, client.WithPreSharedKey("cookiecookiecookiecookie"))
+					})
+				})
+
+				When("the client is not authenticated", func() {
+
+					It("refuses unauthenticated checks", func(ctx context.Context) {
+						ctx = metadata.AppendToOutgoingContext(ctx, "peer", "client", "model", "artists")
+						_, err := syncd.Check(ctx, &api.Info{ApiVersion: 1})
+						Expect(err).To(MatchError(status.Error(codes.Unauthenticated, "Unauthenticated")))
+					})
+				})
+
+				JustBeforeEach(func(ctx context.Context) {
+					conn, err := grpc.DialContext(ctx, "localhost:8080", dialOpts...)
+					DeferCleanup(conn.Close)
+					Expect(err).NotTo(HaveOccurred())
+					syncd = api.NewSyncClient(conn)
+				})
+
+				BeforeEach(func() {
+
+					dialOpts = []grpc.DialOption{
+						// As defined in configFile
+						grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)),
+						grpc.WithAuthority("syncd"),
+					}
+
+					root := cmd.New()
+					root.SetOut(GinkgoWriter)
+					root.SetArgs(args)
+
+					wg := sync.WaitGroup{}
+					ctx, cancel := context.WithCancel(context.Background())
+					DeferCleanup(func() {
+						By("by canceling the command context")
+						cancel()
+						wg.Wait()
+					})
+					wg.Add(1)
+					go func() {
+						defer GinkgoRecover()
+						defer wg.Done()
+						By("by executing 'syncd serve [ARGS]'")
+						Expect(root.ExecuteContext(ctx)).To(Succeed())
+					}()
+
+					Eventually(func() (*http.Response, error) {
+						return http.Get("http://localhost:8081/healthz")
+					}).Should(HaveHTTPStatus(200))
+
+					Eventually(func() (*http.Response, error) {
+						return http.Get("http://localhost:8081/healthz/ready")
+					}).Should(And(HaveHTTPStatus(200), HaveHTTPBody("READY")))
+
+					Eventually(func() (*http.Response, error) {
+						return http.Get("http://localhost:8081/metrics")
+					}).Should(HaveHTTPStatus(200))
+				})
+			})
+
 			BeforeEach(func() {
+
+				factory = new(GraphFactory)
+				artists = new(Graph)
+				songs = new(Graph)
+				performers = new(Graph)
+
+				DeferCleanup(func(t FullGinkgoTInterface) {
+					By("Asserting mock expectations")
+					factory.AssertExpectations(t)
+					artists.AssertExpectations(t)
+					songs.AssertExpectations(t)
+					performers.AssertExpectations(t)
+				}, GinkgoT())
 
 				helpers.OverridePostgresGraphFactory(func(_ context.Context, config postgres.ConnectionConfig) (graph.Factory, error) {
 					defer GinkgoRecover()
+					By("Overriding the Postgres Graph Factory")
 					Expect(config.ConnectionString).To(Equal("postgres://testing"))
 					Expect(config.SyncTable).To(Equal("syncd.sync"))
 					Expect(config.SequenceTable).To(Equal("syncd.sync_seq"))
@@ -53,48 +147,12 @@ var _ = Describe("serve", func() {
 
 					return factory, nil
 				})
+				DeferCleanup(helpers.ResetPostgresGraphFactory)
 			})
+		})
 
-			AfterEach(func() {
-				helpers.ResetPostgresGraphFactory()
-				t := GinkgoT()
-				factory.AssertExpectations(t)
-				artists.AssertExpectations(t)
-				songs.AssertExpectations(t)
-				performers.AssertExpectations(t)
-			})
-
-			It("starts", func(ctx context.Context) {
-
-				ctx, cancel := context.WithCancel(ctx)
-				defer cancel()
-
-				root := cmd.New()
-				root.SetArgs(args)
-				wg := sync.WaitGroup{}
-				wg.Add(1)
-				go func() {
-					defer GinkgoRecover()
-					defer wg.Done()
-					Expect(root.ExecuteContext(ctx)).To(Succeed())
-				}()
-
-				Eventually(func() (*http.Response, error) {
-					return http.Get("http://localhost:8081/healthz/ready")
-				}).Should(HaveHTTPStatus(200))
-
-				cancel()
-				wg.Wait()
-			})
+		BeforeEach(func() {
+			args = append(args, "--config", "build/config.yaml")
 		})
 	})
 })
-
-func TestServer(t *testing.T) {
-	RegisterFailHandler(Fail)
-	cfg, rep := GinkgoConfiguration()
-	if d, ok := t.Deadline(); ok {
-		cfg.Timeout = d.Sub(time.Now())
-	}
-	RunSpecs(t, "Server", cfg, rep)
-}

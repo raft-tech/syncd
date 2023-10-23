@@ -5,9 +5,8 @@ build: generate
 .PHONY: clean
 clean:
 	[ ! -f syncd ] || rm syncd
-	[ ! -f pkg/server/server.crt ] || rm pkg/server/server.crt
-	[ ! -f pkg/server/server.key ] || rm pkg/server/server.key
-	go clean -cache -testcache -x
+	[ ! -d cmd/build ] || rm -rf cmd/build
+	go clean -cache -testcache
 
 .PHONY: generate
 generate: internal/api/syncd.pb.go internal/api/syncd_grpc.pb.go

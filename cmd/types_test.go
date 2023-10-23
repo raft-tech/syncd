@@ -8,6 +8,28 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+type Server struct {
+	mock.Mock
+	api.UnimplementedSyncServer
+}
+
+func (s *Server) Check(ctx context.Context, info *api.Info) (*api.Info, error) {
+	args := s.MethodCalled("Check", ctx, info)
+	return args.Get(0).(*api.Info), args.Error(1)
+}
+
+func (s *Server) Push(server api.Sync_PushServer) error {
+	return s.MethodCalled("Push", server).Error(0)
+}
+
+func (s *Server) Pull(request *api.PullRequest, server api.Sync_PullServer) error {
+	return s.MethodCalled("Pull", request, server).Error(0)
+}
+
+func (s *Server) Acknowledge(server api.Sync_AcknowledgeServer) error {
+	return s.MethodCalled("Acknowledge", server).Error(0)
+}
+
 type GraphFactory struct {
 	mock.Mock
 }
@@ -38,7 +60,14 @@ type Source struct {
 }
 
 func (s *Source) Fetch(ctx context.Context) <-chan *api.Record {
-	return s.MethodCalled("Fetch", ctx).Get(0).(<-chan *api.Record)
+	res := s.MethodCalled("Fetch", ctx).Get(0)
+	if c, ok := res.(<-chan *api.Record); ok {
+		return c
+	} else if fn, ok := res.(func() <-chan *api.Record); ok {
+		return fn()
+	} else {
+		panic("Fetch(context.Context) not implemented")
+	}
 }
 
 func (s *Source) Error() error {
@@ -54,7 +83,14 @@ type Destination struct {
 }
 
 func (d *Destination) Write(ctx context.Context, records <-chan *api.Record) <-chan *api.RecordStatus {
-	return d.MethodCalled("Write", ctx, records).Get(0).(<-chan *api.RecordStatus)
+	res := d.MethodCalled("Write", ctx, records).Get(0)
+	if c, ok := res.(<-chan *api.RecordStatus); ok {
+		return c
+	} else if fn, ok := res.(func() <-chan *api.RecordStatus); ok {
+		return fn()
+	} else {
+		panic("Write(context.Context, <-chan *api.Record) not implemented")
+	}
 }
 
 func (d *Destination) Error() error {

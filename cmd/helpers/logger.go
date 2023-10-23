@@ -14,6 +14,7 @@ import (
 func Logger(writer io.Writer, cfg *viper.Viper) (*zap.Logger, error) {
 
 	opt := log.DefaultOptions
+	opt.Out = writer
 	level := "DEBUG"
 	if cfg != nil {
 		if f := cfg.GetString("format"); f != "" {

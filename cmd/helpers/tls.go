@@ -16,19 +16,18 @@ const (
 )
 
 func ServerTLSConfig(cfg *viper.Viper) (config *tls.Config, err error) {
-	return tlsConfig(serverTLSConfig, cfg)
-}
-
-func ClientTLSConfig(cfg *viper.Viper) (config *tls.Config, err error) {
-	return tlsConfig(clientTLSConfig, cfg)
-}
-
-func tlsConfig(typ tlsConfigType, opts *viper.Viper) (config *tls.Config, err error) {
-
 	flagOpts := TLS{}
-	if err = opts.Unmarshal(&flagOpts); err != nil {
+	if err = cfg.Unmarshal(&flagOpts); err != nil {
 		return
 	}
+	return tlsConfig(serverTLSConfig, flagOpts)
+}
+
+func ClientTLSConfig(flagOpts TLS) (config *tls.Config, err error) {
+	return tlsConfig(clientTLSConfig, flagOpts)
+}
+
+func tlsConfig(typ tlsConfigType, flagOpts TLS) (config *tls.Config, err error) {
 
 	config = new(tls.Config)
 	fail := func(e error) {

@@ -3,8 +3,8 @@ logging:
   level: debug
 
 client:
+  name: alpha
   auth:
-    name: alpha
     preSharedKey:
       fromEnv: SYNCD_AUTH_PRESHARED_KEY
     tls:
