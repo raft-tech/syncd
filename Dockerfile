@@ -1,7 +1,7 @@
 FROM golang:1.20 as BUILD
 COPY . /src
 WORKDIR /src
-RUN go build -o /syncd /src/main.go
+RUN CGO_ENABLED=0 go build -o /syncd /src/main.go
 
 FROM golang:1.20 AS gRPC
 ARG PROTOC_VERSION=23.4
@@ -16,5 +16,5 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28; \
 WORKDIR /src
 ENTRYPOINT ["protoc"]
 
-FROM cgr.dev/chainguard/static:latest-glibc
+FROM scratch
 COPY --from=BUILD /syncd /syncd
