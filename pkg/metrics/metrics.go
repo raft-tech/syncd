@@ -45,7 +45,6 @@ func ForServer(reg prometheus.Registerer) ServerCollector {
 		return nop{}
 	}
 	c := new(collector)
-	c.register(reg, "server")
 	c.unknownModels = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "syncd",
 		Subsystem: "server",
@@ -56,6 +55,8 @@ func ForServer(reg prometheus.Registerer) ServerCollector {
 		Subsystem: "server",
 		Name:      "invalid_peer_models",
 	}, []string{"peer"})
+	reg.MustRegister(c.unknownModels, c.invalidPeerModels)
+	c.register(reg, "server")
 	return c
 }
 
@@ -96,6 +97,7 @@ func (col *collector) register(reg prometheus.Registerer, subsystem string) {
 		Subsystem: subsystem,
 		Name:      "records_acknowledged",
 	}, labels)
+	reg.MustRegister(col.errors, col.checks, col.recordsPulled, col.recordsPushed, col.recordsAcknowledged)
 }
 
 func (col *collector) InvalidModel() {
