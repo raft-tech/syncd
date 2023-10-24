@@ -299,8 +299,12 @@ func (c *client) Pull(ctx context.Context, model string, to graph.Destination, a
 					logger.Error("error sending record status", zap.Error(err))
 				}
 			} else {
+				if _, err := ack.CloseAndRecv(); err == nil || errors.Is(err, io.EOF) {
+					logger.Debug("completed acknowledgements")
+				} else {
+					logger.Error("completed acknowledgements with error", zap.Error(err))
+				}
 				done = true
-				logger.Debug("completed acknowledgements")
 			}
 		case <-ctx.Done():
 			logger.Info("context canceled while sending acks")
