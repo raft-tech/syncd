@@ -16,4 +16,5 @@ graph:
         actions:
           table: things.actions
           key: thing
+          isSet: true
           sequence: sequence
