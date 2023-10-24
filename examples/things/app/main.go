@@ -170,7 +170,7 @@ func ExecuteC(cmd *cobra.Command, args []string) error {
 			if _, err := tx.Exec(ctx, "INSERT INTO things.actions (thing, action, time, sequence) VALUES ($1, $2, $3, $4)", thing.Id, act.Name, act.Time.Unix(), act.Sequence); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, "UPDATE things.things SET actionCount = $2 WHERE id = $1", thing.Id, thing.ActionCount); err != nil {
+			if _, err := tx.Exec(ctx, "UPDATE things.things SET actionCount = $2, version = $3 WHERE id = $1", thing.Id, thing.ActionCount, thing.Version); err != nil {
 				return err
 			}
 			if err := tx.Commit(ctx); err != nil {
