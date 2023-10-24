@@ -1,0 +1,26 @@
+logging:
+  format: json
+  level: debug
+
+client:
+  name: bob
+  auth:
+    preSharedKey:
+      fromEnv: SYNCD_AUTH_PRESHARED_KEY
+    tls:
+      ca:
+        - server.crt
+  metrics:
+    listen: ":8082"
+  peers:
+    alice:
+      address: localhost:8080
+      authority: syncd
+      pull:
+        - things
+      push:
+        things:
+          filters:
+            - key: owner
+              operator: Equals
+              value: bob
