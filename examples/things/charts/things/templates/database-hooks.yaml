@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "things.fullname" . | printf "%s-db" |trunc 63 }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+  labels:
+    {{ include "things.labels" . |nindent 4 }}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{ include "things.labels" . |nindent 8 }}
+    spec:
+      containers:
+        - name: "psql"
+          image: {{ printf "%s/%s:%s" .Values.postgresql.image.registry .Values.postgresql.image.repository .Values.postgresql.image.tag }}
+          command:
+            - /opt/bitnami/postgresql/bin/psql
+            - $(PG_CONNECTION)
+          args:
+            - "--file"
+            - "/config/schema.sql"
+          env:
+            - name: PG_USERNAME
+              value: {{ .Values.global.postgresql.auth.username }}
+            - name: PG_SERVICE
+              value: {{ .Release.Name }}-postgresql
+            - name: PG_DATABASE
+              value: {{ .Values.global.postgresql.auth.database }}
+            - name: PG_CONNECTION
+              value: postgres://$(PG_USERNAME):$(PG_password)@$(PG_SERVICE)/$(PG_DATABASE)
+          envFrom:
+            - prefix: PG_
+              secretRef:
+                name: things-postgresql
+          volumeMounts:
+            - mountPath: /config
+              name: config
+      restartPolicy: Never
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "things.fullname" . | printf "%s-syncd-db" |trunc 63 }}
