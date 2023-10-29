@@ -1,7 +1,11 @@
-*.iml
 
-/.idea
+# Build and test artifacts
 /server.crt
 /server.key
 /syncd
-/cmd/build/
+/cmd/build
+/***/charts/*.tgz
+
+# IDE files
+*.iml
+/.idea

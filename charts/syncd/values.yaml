@@ -1,0 +1,73 @@
+
+client:
+  enabled: false
+
+server:
+  enabled: false
+
+global:
+
+  auth:
+    preSharedKey:
+      value: ""
+      fromExistingSecret: false
+      existingSecret:
+        name: ""
+        key: ""
+
+  graph:
+    source:
+      postgres:
+        schema: syncd
+        syncTable: sync
+        sequenceTable: sync_seq
+        connection:
+          fromPreExistingSecret:
+            name: syncd-postgres
+            key: SYNCD_POSTGRESQL_CONN
+    models:
+      things:
+        table: things.things
+        key: id
+        version: version
+        children:
+          actions:
+            table: things.actions
+            key: thing
+
+  logging:
+    level: info
+    format: json
+
+  annotations: {}
+
+  labels: {}
+
+  image:
+    repository: rafttech/syncd
+    pullPolicy: IfNotPresent
+    tag: "" # Defaults to appVersion
+
+  imagePullSecrets: []
+
+  podAnnotations: { }
+
+  podSecurityContext: { }
+  # fsGroup: 2000
+
+  securityContext: { }
+    # capabilities:
+    #   drop:
+    #   - ALL
+    # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+  nodeSelector: { }
+
+  tolerations: [ ]
+
+  affinity: { }
+
+nameOverride: ""
+fullnameOverride: ""
