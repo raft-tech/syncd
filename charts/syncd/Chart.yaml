@@ -3,9 +3,4 @@ name: syncd
 description: Syncd server and client deployments
 type: application
 version: 0.1.0
-appVersion: 0.1.1
-dependencies:
-  - name: syncd-server
-    version: 0.1.0
-  - name: syncd-client
-    version: 0.1.0
+appVersion: v0.1.1

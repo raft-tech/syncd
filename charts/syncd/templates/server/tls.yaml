@@ -1,0 +1,41 @@
+{{- if .Values.server.tls.enabled }}
+
+{{- if not .Values.server.tls.fromExistingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "syncd.serverFullname" . | trunc 58 | trimSuffix "-" | printf "%s-cert" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "syncd.serverLabels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end}}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ .Values.server.tls.values.certificate | b64enc }}
+  tls.key: {{ .Values.server.tls.values.privateKey | b64enc }}
+{{- end }}
+
+{{- if and (not .Values.server.tls.trustedCAs.fromExistingConfigMap) (not (empty .Values.server.tls.trustedCAs.values)) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "syncd.serverFullname" . | trunc 60 | trimSuffix "-" | printf "%s-ca" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "syncd.serverLabels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end}}
+data:
+  {{- range $k, $v := .Values.server.tls.trustedCAs.values }}
+  {{ $k }}: {{ $v | b64enc }}
+  {{- end }}
+{{- end}}
+
+{{- end }}

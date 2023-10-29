@@ -1,15 +1,15 @@
-{{- if and .Values.enabled .Values.autoscaling.enabled }}
+{{- if and .Values.client.enabled .Values.client.autoscaling.enabled }}
 apiVersion: autoscaling/v2beta1
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "syncd-server.fullname" . }}
+  name: {{ include "syncd.fullname" . }}
   labels:
-    {{- include "syncd-server.labels" . | nindent 4 }}
+    {{- include "syncd.clientLabels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "syncd-server.fullname" . }}
+    name: {{ include "syncd.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:

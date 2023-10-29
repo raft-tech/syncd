@@ -1,73 +1,146 @@
 
+auth:
+  preSharedKey:
+    enabled: false
+    value: ""
+    fromExistingSecret: false
+    existingSecret:
+      name: ""
+      key: ""
+
 client:
   enabled: false
+
+  tls:
+    enabled: false
+
+    values:
+      certificate: ""
+      privateKey: ""
+
+    fromExistingSecret: false
+    existingSecret:
+      name: ""
+      certificateKey: ""
+      privateKeyKey: ""
+
+    trustedCAs:
+      values: {}
+      fromExistingConfigMap: false
+      existingConfigMap:
+        name: ""
+        keys: []
+
+    peers: {}
 
 server:
   enabled: false
 
-global:
+  tls:
+    enabled: false
 
-  auth:
-    preSharedKey:
-      value: ""
-      fromExistingSecret: false
-      existingSecret:
+    values:
+      certificate: ""
+      privateKey: ""
+
+    fromExistingSecret: false
+    existingSecret:
+      name: ""
+      certificateKey: ""
+      privateKeyKey: ""
+
+    trustedCAs:
+      values: {}
+      fromExistingConfigMap: false
+      existingConfigMap:
         name: ""
-        key: ""
+        keys: []
 
-  graph:
-    source:
-      postgres:
-        schema: syncd
-        syncTable: sync
-        sequenceTable: sync_seq
-        connection:
-          fromPreExistingSecret:
-            name: syncd-postgres
-            key: SYNCD_POSTGRESQL_CONN
-    models:
-      things:
-        table: things.things
-        key: id
-        version: version
-        children:
-          actions:
-            table: things.actions
-            key: thing
+  models:
+    things:
+      filters:
+        - key: owner
+          operator: Equals
+          value: alpha
 
-  logging:
-    level: info
-    format: json
+  # Ignored if autoscaling is enabled
+  replicaCount: 1
 
-  annotations: {}
+  autoscaling:
+    enabled: false
 
-  labels: {}
+  ingress:
+    enabled: false
 
-  image:
-    repository: rafttech/syncd
-    pullPolicy: IfNotPresent
-    tag: "" # Defaults to appVersion
+  resources: {}
 
-  imagePullSecrets: []
 
-  podAnnotations: { }
+graph:
 
-  podSecurityContext: { }
-  # fsGroup: 2000
+  source:
+    postgres:
+      schema: things
+      syncTable: sync
+      sequenceTable: sync_seq
+      connection:
+        values:
+          host: ""
+          username: ""
+          password: ""
+          database: ""
+        fromPreExistingSecret: false
+        preExistingSecret:
+          name: ""
+          hostKey: "host"
+          usernameKey: "username"
+          passwordKey: "password"
+          databaseKey: "database"
 
-  securityContext: { }
-    # capabilities:
-    #   drop:
-    #   - ALL
-    # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+  models:
+    things:
+      table: things.things
+      key: id
+      version: version
+      children:
+        actions:
+          table: things.actions
+          key: thing
+          sequence: sequence
 
-  nodeSelector: { }
 
-  tolerations: [ ]
+logging:
+  level: info
+  format: json
 
-  affinity: { }
+annotations: {}
+
+labels: {}
+
+image:
+  repository: rafttech/syncd
+  pullPolicy: IfNotPresent
+  tag: "" # Defaults to appVersion
+
+imagePullSecrets: []
+
+podAnnotations: { }
+
+podSecurityContext: { }
+# fsGroup: 2000
+
+securityContext: { }
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+# runAsNonRoot: true
+# runAsUser: 1000
+
+nodeSelector: { }
+
+tolerations: [ ]
+
+affinity: { }
 
 nameOverride: ""
 fullnameOverride: ""
