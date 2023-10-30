@@ -1,0 +1,22 @@
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor" }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "syncd.serverFullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "syncd.serverLabels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "syncd.serverSelectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http-metrics
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
