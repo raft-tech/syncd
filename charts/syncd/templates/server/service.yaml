@@ -16,9 +16,9 @@ spec:
     {{- include "syncd.serverSelectorLabels" . | nindent 4 }}
   ports:
     - name: grpc
-      port: 80
+      port: {{- if .Values.server.tls.enabled }} 443 {{- else }} 80 {{- end }}
       protocol: TCP
-      targetPort: 8080
+      targetPort: grpc
     - name: http-metrics
       port: 8081
       protocol: TCP

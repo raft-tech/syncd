@@ -120,7 +120,7 @@ spec:
             {{- end }}
             {{- if or .Values.client.tls.trustedCAs.fromExistingConfigMap (not (empty .Values.client.tls.trustedCAs.values)) }}
             - mountPath: /config/tls/roots
-              name: trustedCAs
+              name: trusted-roots
               readOnly: true
             {{- end }}
       {{- with .Values.nodeSelector }}
@@ -147,7 +147,7 @@ spec:
               {{- else }} {{ include "syncd.clientFullname" . | trunc 58 | trimSuffix "-" | printf "%s-cert" }}
               {{- end }}
         {{- if or .Values.client.tls.trustedCAs.fromExistingConfigMap (not (empty .Values.client.tls.trustedCAs)) }}
-        - name: trustedCAs
+        - name: trusted-roots
           configMap:
             name:
             {{- if .Values.client.tls.trustedCAs.fromExistingConfigMap }} {{ .Values.client.tls.trustedCAs.existingConfigMap.name }}

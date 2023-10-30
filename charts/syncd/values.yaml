@@ -91,10 +91,10 @@ graph:
         fromPreExistingSecret: false
         preExistingSecret:
           name: ""
-          hostKey: "host"
-          usernameKey: "username"
-          passwordKey: "password"
-          databaseKey: "database"
+          hostKey: "HOST"
+          usernameKey: "USERNAME"
+          passwordKey: "PASSWORD"
+          databaseKey: "DATABASE"
 
   models:
     things:

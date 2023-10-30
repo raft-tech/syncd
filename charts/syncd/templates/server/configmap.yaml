@@ -17,7 +17,7 @@ data:
     {{- end }}
 
     server:
-      listen: ":8080"
+      listen: {{- if .Values.server.tls.enabled }} ":8443" {{- else }} ":8080" {{- end }}
       metrics:
         listen: ":8081"
       {{- include "syncd.tlsConfig" .Values.server.tls | nindent 6 }}
@@ -25,7 +25,7 @@ data:
         {{- if .Values.auth.preSharedKey.enabled }}
         preSharedKey:
           fromEnv: SYNCD_AUTH_PRESHARED_KEY
-        {{- else }} { }
+        {{- else }} {}
         {{- end }}
       models:
         {{- toYaml .Values.server.models | nindent 8 }}

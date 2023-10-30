@@ -45,20 +45,12 @@ spec:
             - --config
             - /config/server.yaml
           env:
-            {{- if .Values.auth.preSharedKey.enabled }}
-            {{- if .Values.auth.preSharedKey.fromExistingSecret }}
+            {{- if and .Values.auth.preSharedKey.enabled .Values.auth.preSharedKey.fromExistingSecret }}
             - name: SYNCD_AUTH_PRESHARED_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.auth.preSharedKey.existingSecret.name }}
                   key: {{ .Values.auth.preSharedKey.existingSecret.key }}
-            {{- else }}
-            - name: SYNCD_AUTH_PRESHARED_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "syncd.serverFullname" . }}
-                  key: presharedAuthKey
-            {{- end }}
             {{- end }}
             {{- if .Values.graph.source.postgres.connection.fromPreExistingSecret }}
             {{- with .Values.graph.source.postgres.connection.preExistingSecret }}
@@ -71,7 +63,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ .name }}
-                  key: {{ .usernameKeyKey }}
+                  key: {{ .usernameKey }}
             - name: SYNCD_POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -94,10 +86,11 @@ spec:
           {{- end }}
           ports:
             - name: grpc
-              containerPort: 8080
+              containerPort: {{- if .Values.server.tls.enabled }} 8443 {{- else }} 8080 {{- end }}
               protocol: TCP
             - name: http-metrics
               containerPort: 8081
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /healthz
@@ -120,7 +113,7 @@ spec:
             {{- end }}
             {{- if or .Values.server.tls.trustedCAs.fromExistingConfigMap (not (empty .Values.server.tls.trustedCAs.values)) }}
             - mountPath: /config/tls/roots
-              name: trustedCAs
+              name: trusted-roots
               readOnly: true
             {{- end }}
       {{- with .Values.nodeSelector }}
@@ -147,7 +140,7 @@ spec:
               {{- else }} {{ include "syncd.serverFullname" . | trunc 58 | trimSuffix "-" | printf "%s-cert" }}
               {{- end }}
         {{- if or .Values.server.tls.trustedCAs.fromExistingConfigMap (not (empty .Values.server.tls.trustedCAs)) }}
-        - name: trustedCAs
+        - name: trusted-roots
           configMap:
             name:
             {{- if .Values.server.tls.trustedCAs.fromExistingConfigMap }} {{ .Values.server.tls.trustedCAs.existingConfigMap.name }}

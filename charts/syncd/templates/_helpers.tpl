@@ -25,19 +25,19 @@ If release name contains chart name it will be used as a full name.
 
 {{- define "syncd.serverFullname" -}}
 {{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 58 | trimSuffix "-" | printf "%s-server" }}
+{{- .Values.fullnameOverride | trunc 56 | trimSuffix "-" | printf "%s-server" }}
 {{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride | printf "%s-server" }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- printf "%s-%s" .Release.Name $name | trunc 56 | trimSuffix "-" | printf "%s-server" }}
 {{- end }}
 {{- end }}
 
 {{- define "syncd.clientFullname" -}}
 {{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 58 | trimSuffix "-" | printf "%s-server" }}
+{{- .Values.fullnameOverride | trunc 56 | trimSuffix "-" | printf "%s-client" }}
 {{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride | printf "%s-server" }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- printf "%s-%s" .Release.Name $name | trunc 56 | trimSuffix "-" | printf "%s-client" }}
 {{- end }}
 {{- end }}
 
