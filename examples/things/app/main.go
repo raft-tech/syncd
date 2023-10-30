@@ -85,6 +85,8 @@ func ExecuteC(cmd *cobra.Command, args []string) error {
 		} else {
 			return err
 		}
+	} else {
+		return err
 	}
 
 	things := make([]*Thing, 0, cfg.Updates)

@@ -4,11 +4,18 @@ global:
       username: syncd
       database: syncd
 
+image:
+  registry: docker.io
+  repository: rafttech/syncd-things
+  tag: ""
+
+config:
+  owner: ""
+  updateCount: 10
+  waitDuration: 10s
+
 postgresql:
   metrics:
     enabled: true
     serviceMonitor:
       enabled: true
-      namespace: monitoring
-      labels:
-        release: kube-prometheus

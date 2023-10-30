@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "things.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "things.labels" . | nindent 4}}
+spec:
+  selector:
+    matchLabels:
+      {{- include "things.selectorLabels" . | nindent 6 }}
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        {{- include "things.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: "things"
+          image: {{ default .Values.image.registry .Values.global.imageRegistry }}/{{ .Values.image.repository }}:{{ default .Values.image.tag .Chart.AppVersion }}
+          command:
+            - /things
+          args:
+            - -w
+            - {{ .Values.config.waitDuration }}
+            - -n
+            - {{ .Values.config.updateCount | quote }}
+            - {{ default .Values.config.owner (printf "%s-%s" .Release.Namespace .Release.Name) }}
+          env:
+            - name: POSTGRES_USERNAME
+              value: {{ .Values.global.postgresql.auth.username }}
+            - name: POSTGRES_DATABASE
+              value: {{ .Values.global.postgresql.auth.database }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: things-postgresql
+            - name: SYNCD_THINGS_CONN
+              value: postgres://$(POSTGRES_USERNAME):$(POSTGRES_PASSWORD)@{{ .Release.Name }}-postgresql:5432/$(POSTGRES_DATABASE)
+  strategy:
+    type: Recreate
