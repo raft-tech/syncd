@@ -1,0 +1,21 @@
+logging:
+  format: json
+  level: debug
+
+server:
+  listen: ":8080"
+  metrics:
+    listen: ":8081"
+  tls:
+    crt: server.crt
+    key: server.key
+  auth:
+    preSharedKey:
+      value: things
+
+  models:
+    things:
+      filters:
+        - key: owner
+          operator: Equals
+          value: alice

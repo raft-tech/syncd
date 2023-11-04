@@ -1,11 +1,11 @@
 
-# Build and test artifacts
+## Generated files
+/cmd/build/
 /server.crt
 /server.key
 /syncd
-/cmd/build
-/***/charts/*.tgz
+/things
 
-# IDE files
+## JetBrains IDEs
 *.iml
 /.idea

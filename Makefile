@@ -1,11 +1,16 @@
+
+SYNCD_VERSION := $(shell cat VERSION)
+SYNCD_IMAGE := rafttech/syncd:v$(SYNCD_VERSION)
+
 .PHONY: build
 build: generate
 	CGO_ENABLED=0 go build -o syncd
 
 .PHONY: clean
-clean:
+clean: cluster-clean docker-clean
 	[ ! -f syncd ] || rm syncd
 	[ ! -d cmd/build ] || rm -rf cmd/build
+	[ ! -f things ] || rm things
 	go clean -cache -testcache
 
 .PHONY: generate
@@ -55,3 +60,90 @@ postgres-stop:
 	docker container ls -q --filter name=syncd-postgres
 	[ -z $$(docker container ls -q --filter name=syncd-postgres) ] || docker stop syncd-postgres
 	[ -z $$(docker container ls -aq --filter name=syncd-postgres) ] || docker container rm syncd-postgres
+
+
+# Docker
+.PHONY: docker
+docker:
+	[ -n "$$(docker images $(SYNCD_IMAGE) --quiet)" ] || docker build -t $(SYNCD_IMAGE) .
+
+.PHONY: docker-clean
+docker-clean:
+	[ -z "$$(docker images $(SYNCD_IMAGE))" ] || docker rm image $(SYNCD_IMAGE) && docker prune
+
+
+# Things (Data Generator at examples/things/)
+
+THINGS_VERSION := $(shell cat VERSION)
+THINGS_IMAGE := rafttech/syncd-things:v$(SYNCD_VERSION)
+
+.PHONY: things
+things:
+	CGO_ENABLED=false go build -C examples/things/app -o ../../../things .
+
+.PHONY: docker-things
+docker-things:
+	[ -n "$$(docker images $(THINGS_IMAGE) --quiet)" ] || docker build -t $(THINGS_IMAGE) -f examples/things/app/Dockerfile .
+
+.PHONY: docker-clean-things
+docker-clean-things:
+	[ -z "$$(docker images $(THINGS_IMAGE))" ] || docker rm image $(THINGS_IMAGE) && docker prune
+
+
+# KIND demo
+
+.PHONY: demo
+demo: cluster cluster-load demo-alpha
+
+.PHONY: demo-alpha
+demo-alpha:
+	helm upgrade --install things examples/things/charts/things --namespace alpha --create-namespace
+	kubectl -n alpha get secret/things-syncd -o name > /dev/null || kubectl -n alpha create secret generic things-syncd \
+		--from-literal=SYNCD_POSTGRESQL_CONN=$$(kubectl -n alpha get secret/things-postgresql -o template --template '{{ index .data "postgres-password"  }}' |base64 -d)
+
+
+define CLUSTER_CONFIG
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 8080
+    protocol: TCP
+endef
+
+.PHONY: cluster
+export CLUSTER_CONFIG
+cluster:
+	@[ -n "$$(kind get clusters |grep syncd)" ] && echo "syncd cluster already exists" || echo "$$CLUSTER_CONFIG" | kind create cluster --name syncd --config=-
+	@[ "$$(kubectl config current-context)" == "kind-syncd" ] && echo "proper context already set" || kubectl config set-context kind-syncd
+	@kubectl get ingressclass/nginx > /dev/null && echo "nginx ingress already installed" || kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+	@[ -n "$$(helm repo list |grep syncd-prometheus)" ] || helm repo add syncd-prometheus https://prometheus-community.github.io/helm-charts
+	@helm repo update syncd-prometheus
+	@helm upgrade --install syncd-monitoring syncd-prometheus/kube-prometheus-stack --version=52.0.1 --create-namespace --namespace monitoring \
+		--set 'grafana.enabled=true' \
+		--set 'grafana.ingress.enabled=true' \
+		--set 'grafana.ingress.class=nginx' \
+		--set 'grafana.ingress.hosts={localhost}' \
+		--set 'grafana.ingress.path=/grafana' \
+		--set 'grafana.grafana\.ini.server.security.cookie_secure=false' \
+		--set 'grafana.grafana\.ini.server.domain=localhost' \
+		--set 'grafana.grafana\.ini.server.protocol=http' \
+		--set 'grafana.grafana\.ini.server.root_url=%(protocol)s://%(domain)s:%(http_port)s/grafana/' \
+		--set 'grafana.grafana\.ini.server.serve_from_sub_path=true'
+
+.PHONY: cluster-clean
+cluster-clean: cluster-clean
+	[ -z "$$(kind get clusters |grep syncd)" ] && echo "syncd cluster not found" || kind delete cluster --name syncd
+	[ -z "$$(helm repo list |grep syncd-prometheus)" ] || helm repo remove syncd-prometheus
+
+.PHONY: cluster-load
+cluster-load: docker docker-things
+	kind load docker-image $(SYNCD_IMAGE) $(THINGS_IMAGE) --name syncd
