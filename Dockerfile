@@ -18,3 +18,4 @@ ENTRYPOINT ["protoc"]
 
 FROM scratch
 COPY --from=BUILD /syncd /syncd
+ENTRYPOINT ["/syncd"]
