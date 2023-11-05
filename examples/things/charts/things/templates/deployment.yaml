@@ -25,6 +25,8 @@ spec:
             - {{ .Values.config.waitDuration }}
             - -n
             - {{ .Values.config.updateCount | quote }}
+            - --metrics
+            - ":8080"
             - {{ default .Values.config.owner (printf "%s-%s" .Release.Namespace .Release.Name) }}
           env:
             - name: POSTGRES_USERNAME
@@ -38,5 +40,40 @@ spec:
                   name: things-postgresql
             - name: SYNCD_THINGS_CONN
               value: postgres://$(POSTGRES_USERNAME):$(POSTGRES_PASSWORD)@{{ .Release.Name }}-postgresql:5432/$(POSTGRES_DATABASE)
+          livenessProbe:
+            httpGet:
+              port: http-metrics
+              path: /healthz
+          readinessProbe:
+            httpGet:
+              port: http-metrics
+              path: /healthz/readz
+          ports:
+            - containerPort: 8080
+              name: http-metrics
   strategy:
     type: Recreate
+
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PodMonitor" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "things.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "things.labels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  podMetricsEndpoints:
+    - port: http-metrics
+  selector:
+    matchLabels:
+      {{- include "things.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}

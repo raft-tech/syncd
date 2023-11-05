@@ -1,6 +1,8 @@
 FROM golang:1.20 as BUILD
-COPY . /src
+COPY go.mod go.sum /src/
 WORKDIR /src
+RUN go mod download
+COPY . /src
 RUN CGO_ENABLED=0 go build -o /syncd /src/main.go
 
 FROM golang:1.20 AS gRPC

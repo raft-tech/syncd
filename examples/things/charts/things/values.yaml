@@ -1,8 +1,8 @@
 global:
   postgresql:
     auth:
-      username: syncd
-      database: syncd
+      username: things
+      database: things
 
 image:
   registry: docker.io

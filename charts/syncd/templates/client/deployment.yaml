@@ -1,17 +1,18 @@
 {{ if .Values.client.enabled -}}
+
+{{- $hasPush := false }}{{ range $k, $v := .Values.client.peers }}{{- $hasPush = or $hasPush (not (empty $v.pull)) }}{{- end }}
+{{- if $hasPush }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "syncd.clientFullname" . }}
+  name: {{ include "syncd.pushFullname" . }}
   labels:
-    {{- include "syncd.clientLabels" . | nindent 4 }}
+    {{- include "syncd.pushLabels" . | nindent 4 }}
 spec:
-  {{- if not .Values.client.autoscaling.enabled }}
   replicas: {{ .Values.client.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
-      {{- include "syncd.clientSelectorLabels" . | nindent 6 }}
+      {{- include "syncd.pushSelectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -19,7 +20,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "syncd.clientSelectorLabels" . | nindent 8 }}
+        {{- include "syncd.pushSelectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -37,13 +38,15 @@ spec:
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ default .Values.image.tag .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.image.pushPolicy }}
           command:
             - /syncd
-            - serve
+            - push
           args:
             - --config
             - /config/client.yaml
+            - --continuous
+            - 5s
           env:
             {{- if .Values.auth.preSharedKey.enabled }}
             {{- if .Values.auth.preSharedKey.fromExistingSecret }}
@@ -54,10 +57,7 @@ spec:
                   key: {{ .Values.auth.preSharedKey.existingSecret.key }}
             {{- else }}
             - name: SYNCD_AUTH_PRESHARED_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "syncd.clientFullname" . }}
-                  key: presharedAuthKey
+              value: {{ .Values.auth.preSharedKey.value }}
             {{- end }}
             {{- end }}
             {{- if .Values.graph.source.postgres.connection.fromPreExistingSecret }}
@@ -71,7 +71,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ .name }}
-                  key: {{ .usernameKeyKey }}
+                  key: {{ .usernameKey }}
             - name: SYNCD_POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -93,18 +93,11 @@ spec:
               prefix: SYNCD_
           {{- end }}
           ports:
-            - name: grpc
-              containerPort: 8080
-              protocol: TCP
             - name: http-metrics
-              containerPort: 8081
+              containerPort: 8080
           livenessProbe:
             httpGet:
               path: /healthz
-              port: http-metrics
-          readinessProbe:
-            httpGet:
-              path: /healthz/ready
               port: http-metrics
           {{- with .Values.client.resources }}
           resources:
@@ -114,6 +107,7 @@ spec:
             - mountPath: /config
               name: config
             {{- if .Values.client.tls.enabled }}
+            {{- if or .Values.client.tls.fromExistingSecret (not (empty .Values.client.tls.values.certificate)) }}
             - mountPath: /config/tls
               name: cert
               readOnly: true
@@ -123,6 +117,7 @@ spec:
               name: trusted-roots
               readOnly: true
             {{- end }}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -140,12 +135,15 @@ spec:
           configMap:
             name: {{ include "syncd.clientFullname" . }}
         {{- if .Values.client.tls.enabled }}
+        {{- if .Values.client.tls.fromExistingSecret }}
         - name: cert
           secret:
-            secretName:
-              {{- if .Values.client.tls.fromExistingSecret }} {{ .Values.client.tls.existingSecret.name }}
-              {{- else }} {{ include "syncd.clientFullname" . | trunc 58 | trimSuffix "-" | printf "%s-cert" }}
-              {{- end }}
+            secretName: {{ .Values.client.tls.existingSecret.name }}
+        {{- else if not (empty .Values.client.tls.values.certificate ) }}
+        - - name: cert
+            secret:
+              secretName: {{ include "syncd.clientFullname" . | trunc 58 | trimSuffix "-" | printf "%s-cert" }}
+        {{- end }}
         {{- if or .Values.client.tls.trustedCAs.fromExistingConfigMap (not (empty .Values.client.tls.trustedCAs)) }}
         - name: trusted-roots
           configMap:
@@ -155,4 +153,207 @@ spec:
             {{- end }}
         {{- end }}
         {{- end }}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PodMonitor" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "syncd.pushFullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "syncd.pushLabels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  podMetricsEndpoints:
+    - port: http-metrics
+  selector:
+    matchLabels:
+      {{- include "syncd.pushSelectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
+
+{{- $hasPull := false }}{{ range $k, $v := .Values.client.peers }}{{- $hasPull = or $hasPull (not (empty $v.pull)) }}{{- end }}
+{{- if $hasPull }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "syncd.pullFullname" .  }}
+  labels:
+    {{- include "syncd.pullLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.client.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "syncd.pullSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "syncd.pullSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- else }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      securityContext:
+        {{- with .Values.securityContext }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ default .Values.image.tag .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /syncd
+            - pull
+          args:
+            - --config
+            - /config/client.yaml
+            - --continuous
+            - 5s
+          env:
+            {{- if .Values.auth.preSharedKey.enabled }}
+            {{- if .Values.auth.preSharedKey.fromExistingSecret }}
+            - name: SYNCD_AUTH_PRESHARED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.preSharedKey.existingSecret.name }}
+                  key: {{ .Values.auth.preSharedKey.existingSecret.key }}
+            {{- else }}
+            - name: SYNCD_AUTH_PRESHARED_KEY
+              value: {{ .Values.auth.preSharedKey.value }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.graph.source.postgres.connection.fromPreExistingSecret }}
+            {{- with .Values.graph.source.postgres.connection.preExistingSecret }}
+            - name: SYNCD_POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .hostKey }}
+            - name: SYNCD_POSTGRES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .usernameKey }}
+            - name: SYNCD_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .passwordKey }}
+            - name: SYNCD_POSTGRES_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .databaseKey }}
+            {{- end }}
+            {{- end }}
+            - name: SYNCD_POSTGRESQL_CONN
+              value: "postgres://$(SYNCD_POSTGRES_USERNAME):$(SYNCD_POSTGRES_PASSWORD)@$(SYNCD_POSTGRES_HOST)/$(SYNCD_POSTGRES_DATABASE)"
+          {{- if not .Values.graph.source.postgres.connection.fromPreExistingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ include "syncd.clientFullname" . }}
+              prefix: SYNCD_
+          {{- end }}
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-metrics
+          {{- with .Values.client.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - mountPath: /config
+              name: config
+          {{- if .Values.client.tls.enabled }}
+            {{- if or .Values.client.tls.fromExistingSecret (not (empty .Values.client.tls.values.certificate)) }}
+            - mountPath: /config/tls
+              name: cert
+              readOnly: true
+            {{- end }}
+            {{- if or .Values.client.tls.trustedCAs.fromExistingConfigMap (not (empty .Values.client.tls.trustedCAs.values)) }}
+            - mountPath: /config/tls/roots
+              name: trusted-roots
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "syncd.clientFullname" . }}
+        {{- if .Values.client.tls.enabled }}
+        {{- if .Values.client.tls.fromExistingSecret }}
+        - name: cert
+          secret:
+            secretName: {{ .Values.client.tls.existingSecret.name }}
+        {{- else if not (empty .Values.client.tls.values.certificate ) }}
+        - - name: cert
+            secret:
+              secretName: {{ include "syncd.clientFullname" . | trunc 58 | trimSuffix "-" | printf "%s-cert" }}
+        {{- end }}
+        {{- if or .Values.client.tls.trustedCAs.fromExistingConfigMap (not (empty .Values.client.tls.trustedCAs)) }}
+        - name: trusted-roots
+          configMap:
+            name:
+            {{- if .Values.client.tls.trustedCAs.fromExistingConfigMap }} {{ .Values.client.tls.trustedCAs.existingConfigMap.name }}
+            {{- else }} {{ include "syncd.clientFullname" . | trunc 60 | trimSuffix "-" | printf "%s-ca" }}
+            {{- end }}
+        {{- end }}
+        {{- end }}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PodMonitor" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "syncd.pullFullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "syncd.pullLabels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  podMetricsEndpoints:
+    - port: http-metrics
+  selector:
+    matchLabels:
+      {{- include "syncd.pullSelectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
 {{- end }}

@@ -9,8 +9,11 @@ auth:
       key: ""
 
 client:
+
   enabled: false
 
+  name: ""
+  
   tls:
     enabled: false
 
@@ -21,8 +24,6 @@ client:
     fromExistingSecret: false
     existingSecret:
       name: ""
-      certificateKey: ""
-      privateKeyKey: ""
 
     trustedCAs:
       values: {}
@@ -31,7 +32,7 @@ client:
         name: ""
         keys: []
 
-    peers: {}
+  peers: {}
 
 server:
   enabled: false
@@ -105,6 +106,7 @@ graph:
         actions:
           table: things.actions
           key: thing
+          isSet: true
           sequence: sequence
 
 

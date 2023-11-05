@@ -322,7 +322,7 @@ var _ = Describe("client", func() {
 					// Clients
 					source := new(Source)
 					DeferCleanup(source.AssertExpectations, GinkgoT())
-					artists.On("Source", "artists", mock.MatchedBy(func(filters []graph.Filter) bool {
+					artists.On("Source", "bravo", mock.MatchedBy(func(filters []graph.Filter) bool {
 						return len(filters) == 1 &&
 							filters[0].Key == "name" &&
 							filters[0].Operator == graph.InOperator &&
@@ -408,7 +408,7 @@ var _ = Describe("client", func() {
 					// Clients
 					source := new(Source)
 					DeferCleanup(source.AssertExpectations, GinkgoT())
-					songs.On("Source", "songs", mock.MatchedBy(func(filters []graph.Filter) bool {
+					songs.On("Source", "bravo", mock.MatchedBy(func(filters []graph.Filter) bool {
 						return len(filters) == 1 &&
 							filters[0].Key == "publisher" &&
 							filters[0].Operator == graph.InOperator &&
@@ -629,7 +629,7 @@ var _ = Describe("client", func() {
 					// Client graph
 					source := new(Source)
 					DeferCleanup(source.AssertExpectations, GinkgoT())
-					artists.On("Source", "artists", mock.MatchedBy(func(filters []graph.Filter) bool {
+					artists.On("Source", "bravo", mock.MatchedBy(func(filters []graph.Filter) bool {
 						return len(filters) == 1 &&
 							filters[0].Key == "name" &&
 							filters[0].Operator == graph.InOperator &&
@@ -672,7 +672,7 @@ var _ = Describe("client", func() {
 					// Client graph
 					source := new(Source)
 					DeferCleanup(source.AssertExpectations, GinkgoT())
-					songs.On("Source", "songs", mock.MatchedBy(func(filters []graph.Filter) bool {
+					songs.On("Source", "bravo", mock.MatchedBy(func(filters []graph.Filter) bool {
 						return len(filters) == 1 &&
 							filters[0].Key == "publisher" &&
 							filters[0].Operator == graph.InOperator &&

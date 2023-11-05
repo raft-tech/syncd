@@ -17,17 +17,17 @@ data:
     {{- end }}
 
     client:
+      name: {{ default .Values.client.name .Release.Name }}
       metrics:
-        listen: ":8081"
-      {{- include "syncd.tlsConfig" .Values.client.tls | nindent 6 }}
+        listen: ":8080"
       auth:
         {{- if .Values.auth.preSharedKey.enabled }}
         preSharedKey:
           fromEnv: SYNCD_AUTH_PRESHARED_KEY
-        {{- else }} { }
         {{- end }}
+        {{- include "syncd.tlsConfig" .Values.client.tls | nindent 8 }}
       peers:
-        {{- toYaml .Values.client.peers}}
+        {{- toYaml .Values.client.peers | nindent 8 }}
 
     {{- include "syncd.graphConfig" . | nindent 4 }}
-  {{- end }}
+    {{- end }}

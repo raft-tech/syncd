@@ -45,8 +45,8 @@ type model struct {
 
 	readQuery       string
 	lockQuery       string
-	updateStatement string
 	insertStatement string
+	//updateStatement string
 	deleteStatement string
 
 	children map[string]*model
@@ -141,7 +141,9 @@ func (m *model) init(ctx context.Context, conn *pgx.Conn) error {
 			insertArgs = append(insertArgs, "$"+strconv.Itoa(i+1))
 			if i != m.keyIdx {
 				queryFields = append(queryFields, m.columns[i].Name)
-				updates = append(updates, m.columns[i].Name+" = $"+strconv.Itoa(i+1))
+				if i != m.sequenceIdx {
+					updates = append(updates, m.columns[i].Name+" = EXCLUDED."+m.columns[i].Name)
+				}
 			}
 		}
 		m.readQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1", strings.Join(queryFields, ", "), m.Table.Name, m.Table.KeyField)
@@ -150,15 +152,17 @@ func (m *model) init(ctx context.Context, conn *pgx.Conn) error {
 			m.Table.KeyField,
 			strings.Join(queryFields, ", "),
 			strings.Join(insertArgs, ", "))
-		if m.Table.SequenceField == "" {
-			if m.IsSet {
-				m.deleteStatement = fmt.Sprintf("DELETE FROM %s WHERE %s = $1", m.Table.Name, m.Table.KeyField)
-			} else {
-				m.updateStatement = fmt.Sprintf("UPDATE %s SET %s WHERE %s = $1",
-					m.Table.Name,
-					strings.Join(updates, ", "),
-					m.Table.KeyField)
-			}
+		if m.sequenceIdx > -1 {
+			// Sequenced records should not be updated, but if they are, the primary key should be {id},{seq}
+			// TODO: Instead of assuming the primary key, discover it by querying information_schema
+			m.insertStatement += fmt.Sprintf(" ON CONFLICT (%s, %s) DO UPDATE SET %s", m.Table.KeyField, m.Table.SequenceField, strings.Join(updates, ", "))
+		} else if m.IsSet {
+			// On updates, sets should be cleared and replaced
+			// TODO: Cascade deletes of children with sets before updating
+			m.deleteStatement = fmt.Sprintf("DELETE FROM %s WHERE %s = $1", m.Table.Name, m.Table.KeyField)
+		} else {
+			// All other records may be updated in place
+			m.insertStatement += fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", m.Table.KeyField, strings.Join(updates, ", "))
 		}
 
 		// Top-level models require locking
@@ -437,6 +441,7 @@ func (m *model) Insert(ctx context.Context, tx pgx.Tx, data *api.Data) ([]sequen
 		logger := log.FromContext(ctx).With(zap.String("model", m.Name))
 
 		// Prepare args and determine child key for future use
+		var key string
 		var childKey *api.Data
 		fields := data.Records[0].Fields
 		args := make([]interface{}, 1, len(m.columns))
@@ -447,7 +452,7 @@ func (m *model) Insert(ctx context.Context, tx pgx.Tx, data *api.Data) ([]sequen
 				if err := m.columns[i].Type.Decode(val, value); err == nil {
 					if i == m.keyIdx {
 						args[0] = value
-						key := *(value.(*string))
+						key = *(value.(*string))
 						logger = logger.With(zap.String("key", key))
 						if m.childKeyIdx == -1 {
 							childKey = api.StringData{}.From(key)
@@ -472,7 +477,9 @@ func (m *model) Insert(ctx context.Context, tx pgx.Tx, data *api.Data) ([]sequen
 			}
 		}
 
-		logger.Debug("inserting record")
+		// Update or Insert
+		// TODO ensure complex grandchild relationships are properly handled
+		logger.Debug("inserting/updating record")
 		if _, err := tx.Exec(ctx, m.insertStatement, args...); err != nil {
 			logger.Error("error inserting record", zap.Error(err))
 			return nil, graph.NewDatabaseError(err)

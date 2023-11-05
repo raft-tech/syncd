@@ -1,6 +1,6 @@
 {{- if .Values.client.tls.enabled }}
 
-{{- if not .Values.client.tls.fromExistingSecret }}
+{{- if and (not .Values.client.tls.fromExistingSecret) (not (empty .Values.client.tls.values.certificate)) }}
 ---
 apiVersion: v1
 kind: Secret
@@ -34,7 +34,8 @@ metadata:
   {{- end}}
 data:
   {{- range $k, $v := .Values.client.tls.trustedCAs.values }}
-  {{ $k }}: {{ $v | b64enc }}
+  {{ $k }}: |
+  {{- $v | nindent 4 }}
   {{- end }}
 {{- end}}
 

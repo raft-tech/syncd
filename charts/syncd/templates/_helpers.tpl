@@ -41,6 +41,24 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 {{- end }}
 
+{{- define "syncd.pushFullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 57 | trimSuffix "-" | printf "%s-push" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- printf "%s-%s" .Release.Name $name | trunc 57 | trimSuffix "-" | printf "%s-push" }}
+{{- end }}
+{{- end }}
+
+{{- define "syncd.pullFullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 57 | trimSuffix "-" | printf "%s-pull" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- printf "%s-%s" .Release.Name $name | trunc 57 | trimSuffix "-" | printf "%s-pull" }}
+{{- end }}
+{{- end }}
+
 {{/*
 Create chart name and version as used by the chart label.
 */}}
@@ -77,6 +95,22 @@ app.kubernetes.io/component: client
 {{- end }}
 
 {{/*
+Push labels
+*/}}
+{{- define "syncd.pushLabels" -}}
+{{- include "syncd.labels" . }}
+app.kubernetes.io/component: push-client
+{{- end }}
+
+{{/*
+Pull labels
+*/}}
+{{- define "syncd.pullLabels" -}}
+{{- include "syncd.labels" . }}
+app.kubernetes.io/component: pull-client
+{{- end }}
+
+{{/*
 Selector labels
 */}}
 {{- define "syncd.selectorLabels" -}}
@@ -93,11 +127,19 @@ app.kubernetes.io/component: server
 {{- end }}
 
 {{/*
-Client selector labels
+Push selector labels
 */}}
-{{- define "syncd.clientSelectorLabels" -}}
+{{- define "syncd.pushSelectorLabels" -}}
 {{- include "syncd.selectorLabels" . }}
-app.kubernetes.io/component: client
+app.kubernetes.io/component: push-client
+{{- end }}
+
+{{/*
+Pull selector labels
+*/}}
+{{- define "syncd.pullSelectorLabels" -}}
+{{- include "syncd.selectorLabels" . }}
+app.kubernetes.io/component: pull-client
 {{- end }}
 
 {{- define "syncd.needsServerSecret" -}}
@@ -117,6 +159,7 @@ preSharedKey:
 tls:
   {{- if not .enabled }} {}
   {{- else }}
+  {{- if or .fromExistingSecret (not (empty .values.certificate )) }}
   crt: /config/tls/tls.crt
   key: /config/tls/tls.key
   {{- end }}
@@ -132,6 +175,7 @@ tls:
     {{- range $k, $v := .trustedCAs.values }}
     - /config/tls/roots/{{ $k }}
     {{- end }}
+  {{- end }}
   {{- end }}
 {{- end }}
 
