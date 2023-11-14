@@ -21,7 +21,7 @@ jobs:
       - name: Install Dependencies
         run: |
           go get .
-          go get ./examples/things/.
+          go get ./examples/things/app/.
       - name: Verify
         run: |
           go vet ./...
@@ -39,7 +39,7 @@ jobs:
       - name: Vet
         run: |
           go vet ./...
-          go vet ./examples/things/...
+          go vet ./examples/things/app/...
 #      - name: Unit Tests
 #        run: go test ./... -short -timeout 15s
   Release:
