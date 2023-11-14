@@ -61,3 +61,7 @@ postgres-stop:
 .PHONY: things
 things:
 	CGO_ENABLED=false go build -C examples/things/app -o ../../../things .
+
+.PHONY: things-image
+things-image:
+	docker build -t test -f examples/things/app/Dockerfile .
