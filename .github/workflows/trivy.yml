@@ -29,11 +29,21 @@ jobs:
       - name: Build an image from Dockerfile
         run: |
           docker build -t syncd:${{ github.sha }} .
+          docker build -t things:${{ github.sha }} ./examples/things/app/
 
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy vulnerability scanner syncd
         uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
         with:
           image-ref: 'syncd:${{ github.sha }}'
+          format: 'template'
+          template: '@/contrib/sarif.tpl'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy vulnerability scanner syncd
+        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
+        with:
+          image-ref: 'things:${{ github.sha }}'
           format: 'template'
           template: '@/contrib/sarif.tpl'
           output: 'trivy-results.sarif'
