@@ -23,9 +23,7 @@ jobs:
           go get .
           go get ./examples/things/app/.
       - name: Verify
-        run: |
-          go vet ./...
-          go vet ./examples/things/...
+        run: go vet ./...
   Test:
     needs: Build
     runs-on: ubuntu-latest
@@ -37,9 +35,7 @@ jobs:
           cache: true
           go-version-file: 'go.mod'
       - name: Vet
-        run: |
-          go vet ./...
-          go vet ./examples/things/app/...
+        run: go vet ./...
 #      - name: Unit Tests
 #        run: go test ./... -short -timeout 15s
   Release:
