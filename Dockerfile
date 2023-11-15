@@ -18,4 +18,4 @@ ENTRYPOINT ["protoc"]
 
 FROM scratch
 COPY --from=BUILD /syncd /syncd
-USER 1000
+USER 1099

@@ -5,5 +5,5 @@ RUN CGO_ENABLED=0 go build -C examples/things/app -o /things .
 
 FROM scratch
 COPY --from=BUILD /things /things
-USER 1000
+USER 1099
 ENTRYPOINT ["/things"]
