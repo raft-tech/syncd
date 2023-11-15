@@ -1,7 +1,11 @@
-*.iml
 
-/.idea
+## Generated files
+/cmd/build/
 /server.crt
 /server.key
 /syncd
-/cmd/build/
+/things
+
+## JetBrains IDEs
+*.iml
+/.idea

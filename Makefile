@@ -6,6 +6,7 @@ build: generate
 clean:
 	[ ! -f syncd ] || rm syncd
 	[ ! -d cmd/build ] || rm -rf cmd/build
+	[ ! -f things ] || rm things
 	go clean -cache -testcache
 
 .PHONY: generate
@@ -55,3 +56,12 @@ postgres-stop:
 	docker container ls -q --filter name=syncd-postgres
 	[ -z $$(docker container ls -q --filter name=syncd-postgres) ] || docker stop syncd-postgres
 	[ -z $$(docker container ls -aq --filter name=syncd-postgres) ] || docker container rm syncd-postgres
+
+# Things (Data Generator at examples/things/)
+.PHONY: things
+things:
+	CGO_ENABLED=false go build -C examples/things/app -o ../../../things .
+
+.PHONY: things-image
+things-image:
+	docker build -t test -f examples/things/app/Dockerfile .

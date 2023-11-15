@@ -1,0 +1,20 @@
+graph:
+  source:
+    postgres:
+      syncTable:
+        name: things.sync
+      sequenceTable:
+        name: things.sync_seq
+      connection:
+        fromEnv: SYNCD_POSTGRESQL_CONN
+  models:
+    things:
+      table: things.things
+      key: id
+      version: version
+      children:
+        actions:
+          table: things.actions
+          key: thing
+          isSet: true
+          sequence: sequence
