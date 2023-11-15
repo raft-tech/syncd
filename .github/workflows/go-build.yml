@@ -19,9 +19,7 @@ jobs:
           cache: true
           go-version-file: 'go.mod'
       - name: Install Dependencies
-        run: |
-          go get .
-          go get ./examples/things/app/.
+        run: go get .
       - name: Verify
         run: go vet ./...
   Test:
