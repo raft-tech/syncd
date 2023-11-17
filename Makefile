@@ -77,7 +77,7 @@ docker-clean:
 # Things (Data Generator at examples/things/)
 
 THINGS_VERSION := $(shell cat VERSION)
-THINGS_IMAGE := rafttech/syncd-things:v$(SYNCD_VERSION)
+THINGS_IMAGE := rafttech/things:v$(SYNCD_VERSION)
 
 .PHONY: things
 things:

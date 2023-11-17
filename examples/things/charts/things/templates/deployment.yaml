@@ -37,7 +37,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   key: password
-                  name: things-postgresql
+                  name: {{.Values.global.postgresql.auth.secretRef }}
             - name: SYNCD_THINGS_CONN
               value: postgres://$(POSTGRES_USERNAME):$(POSTGRES_PASSWORD)@{{ .Release.Name }}-postgresql:5432/$(POSTGRES_DATABASE)
           livenessProbe:
