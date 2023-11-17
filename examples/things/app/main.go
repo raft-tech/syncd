@@ -31,6 +31,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/raft-tech/syncd/cmd/helpers"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -44,6 +46,7 @@ func New() *cobra.Command {
 	cmd.PersistentFlags().StringP("conn", "c", "postgres://localhost:5432/public", "PostgreSQL connection string")
 	cmd.PersistentFlags().DurationP("every", "w", 10*time.Second, "Duration between generations")
 	cmd.PersistentFlags().UintP("updates", "n", 10, "Number of times to update each record")
+	cmd.PersistentFlags().String("metrics", "", "Serve metrics on the specific port (e.g., 8080)")
 	return cmd
 }
 
@@ -51,6 +54,7 @@ type config struct {
 	Connection string        `mapstructure:"conn"`
 	Duration   time.Duration `mapstructure:"every"`
 	Updates    uint
+	Metrics    string
 }
 
 func ExecuteC(cmd *cobra.Command, args []string) error {
@@ -78,10 +82,98 @@ func ExecuteC(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	allThings := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "things",
+		Subsystem: "generator",
+		Name:      "total_things",
+	}, []string{"owner"})
+	createdThings := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace:   "things",
+		Subsystem:   "generator",
+		Name:        "created_things",
+		ConstLabels: map[string]string{"owner": owner},
+	})
+	updatesToThings := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace:   "things",
+		Subsystem:   "generator",
+		Name:        "updated_things",
+		ConstLabels: map[string]string{"owner": owner},
+	})
+	ready := func() {}
+
+	// Register instruments if enabled
+	if maddr := cfg.Metrics; maddr != "" {
+		if h, err := helpers.Health(); err == nil {
+			ready = h.Ready
+			h.Registry.MustRegister(allThings, createdThings, updatesToThings)
+			s := h.Serve(maddr)
+			if err = s.Error(); err == nil {
+				defer s.Stop()
+			} else {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
 	var db *pgxpool.Pool
 	if c, err := pgxpool.ParseConfig(cfg.Connection); err == nil {
 		if db, err = pgxpool.NewWithConfig(ctx, c); err == nil {
 			defer db.Close()
+			ready()
+			// update allThings periodically
+			go func() {
+				ticker := time.NewTicker(30 * time.Second)
+				lock := new(sync.Mutex)
+
+				for done := false; !done; {
+					select {
+					case <-ctx.Done():
+						done = true
+					case <-ticker.C:
+						go func() {
+							if lock.TryLock() {
+								defer lock.Unlock()
+
+								var conn *pgxpool.Conn
+								if c, e := db.Acquire(ctx); e == nil {
+									conn = c
+									defer c.Release()
+								} else {
+									return
+								}
+
+								if rows, err := conn.Query(ctx, "SELECT DISTINCT(owner) FROM things.things ORDER BY owner ASC"); err == nil {
+
+									var owners []string
+									var owner string
+									for rows.Next() {
+										if e := rows.Scan(&owner); e != nil {
+											rows.Close()
+											return
+										}
+										owners = append(owners, owner)
+									}
+
+									for i := range owners {
+										row := conn.QueryRow(ctx, "SELECT COUNT(owner) FROM things.things WHERE owner = $1", owners[i])
+										var n int
+										if e := row.Scan(&n); e == nil {
+											allThings.With(map[string]string{"owner": owners[i]}).Set(float64(n))
+										} else {
+											return
+										}
+									}
+
+								} else {
+									return
+								}
+							}
+						}()
+					}
+				}
+			}()
 		} else {
 			return err
 		}
@@ -178,7 +270,8 @@ func ExecuteC(cmd *cobra.Command, args []string) error {
 			if err := tx.Commit(ctx); err != nil {
 				return err
 			}
-			counter.Add(1)
+			counter.Add(1)        // for logging
+			updatesToThings.Inc() // for metrics
 		}
 
 		// Add something new
@@ -202,7 +295,8 @@ func ExecuteC(cmd *cobra.Command, args []string) error {
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
-		counter.Add(1)
+		counter.Add(1)      // for logging
+		createdThings.Inc() // for metrics
 
 		// Shift right, add the new thing
 		if idx == 0 {

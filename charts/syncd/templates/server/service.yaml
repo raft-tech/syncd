@@ -1,0 +1,25 @@
+{{- if .Values.server.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "syncd.serverFullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "syncd.serverLabels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "syncd.serverSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{- if .Values.server.tls.enabled }} 443 {{- else }} 80 {{- end }}
+      protocol: TCP
+      targetPort: grpc
+    - name: http-metrics
+      port: 8081
+      protocol: TCP
+{{- end }}

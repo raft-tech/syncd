@@ -109,6 +109,7 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 		dopt = append(dopt, client.WithPreSharedKey(psk))
 	}
 
+	ready := func() {}
 	copt := []client.ClientOption{client.WithDialOptions(dopt...)}
 	if addr := config.GetString("client.metrics.listen"); addr != "" {
 		if continuous == 0 {
@@ -117,6 +118,7 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 		var health *helpers.Probes
 		if h, err := helpers.Health(); err == nil {
 			health = h
+			ready = h.Ready
 		} else {
 			return fail("error configuring health probes", err)
 		}
@@ -153,6 +155,7 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 		return fail("error initializing graph", err)
 	}
 	logger.Info("graph initialized")
+	ready()
 
 	var err error
 	wg := sync.WaitGroup{}
@@ -204,6 +207,7 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 			case "push":
 				req := pushRequest{
 					client: syncd,
+					peer:   name,
 					as:     clientConfig.Name,
 					models: peer.PushModels,
 					graphs: graphs,
@@ -260,6 +264,7 @@ func PushOrPull(cmd *cobra.Command, args []string) error {
 type pushRequest struct {
 	client client.Client
 	as     string
+	peer   string
 	models map[string]*PushModel
 	graphs map[string]graph.Graph
 }
@@ -285,7 +290,7 @@ func doPush(ctx context.Context, req pushRequest) (err error) {
 		}
 		if g, ok := req.graphs[name]; ok {
 			logger := logger.With(zap.String("model", name))
-			if e := req.client.Push(ctx, name, g.Source(name, model.Filters...), req.as); e != nil {
+			if e := req.client.Push(ctx, name, g.Source(req.peer, model.Filters...), req.as); e != nil {
 				logger.Error("error pulling from peer", zap.Error(e))
 				err = e
 			}
