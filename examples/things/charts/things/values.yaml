@@ -19,10 +19,12 @@ nodeSelector: {}
 
 dbInitJob:
   enabled: true
-  command: /bin/bash
+  command:
+    - /opt/bitnami/postgresql/bin/psql
+    - $(PG_CONNECTION)
   args:
-    - "-c"
-    - "while ! pg_isready -d $(PG_CONNECTION); do echo waiting for database to be come ready; sleep 5; done"
+    - "--file"
+    - "/config/schema.sql"
   # If unset, the default postgresql image will be used
   image:
     registry:
@@ -30,7 +32,8 @@ dbInitJob:
     tag:
   initContainer:
     enabled: true
-    command: /bin/bash
+    command:
+      - /bin/bash
     args:
       - "-c"
       - "while ! pg_isready -d $(PG_CONNECTION); do echo waiting for database to be come ready; sleep 5; done"
@@ -39,6 +42,7 @@ dbInitJob:
       registry:
       repository:
       tag:
+      
 postgresql:
   enabled: true
   auth:

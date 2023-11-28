@@ -6,8 +6,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
-  labels:
-    {{ include "things.labels" . | nindent 4 }}
+  labels: {{ include "things.labels" . | nindent 4 }}
 spec:
   activeDeadlineSeconds: 300
   ttlSecondsAfterFinished: 600
@@ -19,11 +18,8 @@ spec:
       initContainers:
         - name: "wait"
           image: {{ include "things.dbInitJob.initContainer" . }}
-          command:
-            - /bin/bash
-          args:
-            - "-c"
-            - "while ! pg_isready -d $(PG_CONNECTION); do echo waiting for database to be come ready; sleep 5; done"
+          command: {{ .Values.dbInitJob.initContainer.command | toYaml | nindent 12 }}
+          args: {{ .Values.dbInitJob.initContainer.args | toYaml | nindent 12 }}
           env:
             - name: PG_USERNAME
               value: {{ .Values.global.postgresql.auth.username }}
@@ -41,12 +37,8 @@ spec:
       containers:
         - name: "psql"
           image: {{ include "things.dbInitJob.container" . }}
-          command:
-            - /opt/bitnami/postgresql/bin/psql
-            - $(PG_CONNECTION)
-          args:
-            - "--file"
-            - "/config/schema.sql"
+          command: {{ .Values.dbInitJob.command | toYaml | nindent 12 }}
+          args: {{ .Values.dbInitJob.args | toYaml | nindent 12 }}
           env:
             - name: PG_USERNAME
               value: {{ .Values.global.postgresql.auth.username }}
