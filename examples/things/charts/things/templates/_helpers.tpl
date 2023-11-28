@@ -49,3 +49,19 @@ Selector labels
 app.kubernetes.io/name: {{ include "things.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+DB Init Container Images
+*/}}
+{{- define "things.dbInitJob.container" }}
+{{- $registry := default .Values.postgresql.image.registry .Values.dbInitJob.image.registry -}}
+{{- $repository := default .Values.postgresql.image.repository .Values.dbInitJob.image.repository -}}
+{{- $tag := default .Values.postgresql.image.tag .Values.dbInitJob.image.tag -}}
+{{ printf "%s/%s:%s" $registry $repository $tag }}
+{{- end }}
+{{- define "things.dbInitJob.initContainer" }}
+{{- $registry := default .Values.postgresql.image.registry .Values.dbInitJob.initContainer.image.registry -}}
+{{- $repository := default .Values.postgresql.image.repository .Values.dbInitJob.initContainer.image.repository -}}
+{{- $tag := default .Values.postgresql.image.tag .Values.dbInitJob.initContainer.image.tag -}}
+{{ printf "%s/%s:%s" $registry $repository $tag }}
+{{- end }}

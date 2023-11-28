@@ -17,7 +17,30 @@ config:
 topologuSpreadConstraints: {}
 nodeSelector: {}
 
+dbInitJob:
+  enabled: true
+  command: /bin/bash
+  args:
+    - "-c"
+    - "while ! pg_isready -d $(PG_CONNECTION); do echo waiting for database to be come ready; sleep 5; done"
+  # If unset, the default postgresql image will be used
+  image:
+    registry:
+    repository:
+    tag:
+  initContainer:
+    enabled: true
+    command: /bin/bash
+    args:
+      - "-c"
+      - "while ! pg_isready -d $(PG_CONNECTION); do echo waiting for database to be come ready; sleep 5; done"
+    # If unset, the default postgresql image will be used
+    image:
+      registry:
+      repository:
+      tag:
 postgresql:
+  enabled: true
   auth:
     username:
     password:

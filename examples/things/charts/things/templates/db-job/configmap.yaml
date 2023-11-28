@@ -1,11 +1,11 @@
+{{- if .Values.dbInitJob.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "things.fullname" . | trunc 54 | trimSuffix "-" | printf "%s-syncd-db" }}
   namespace: {{ .Release.Namespace }}
   {{- with include "things.labels" . }}
-  labels:
-    {{ . |nindent 4 }}
+  labels: {{ . | nindent 4 }}
   {{- end }}
 data:
   schema.sql: |
@@ -27,3 +27,4 @@ data:
       sequence integer not null,
       primary key (thing, sequence)
     );
+{{- end }}

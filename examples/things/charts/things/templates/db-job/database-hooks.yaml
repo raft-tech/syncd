@@ -1,3 +1,4 @@
+{{- if .Values.dbInitJob.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -6,18 +7,18 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
   labels:
-    {{ include "things.labels" . |nindent 4 }}
+    {{ include "things.labels" . | nindent 4 }}
 spec:
   activeDeadlineSeconds: 300
   ttlSecondsAfterFinished: 600
   template:
     metadata:
-      labels:
-        {{ include "things.labels" . |nindent 8 }}
+      labels: {{ include "things.labels" . | nindent 8 }}
     spec:
+{{- if .Values.dbInitJob.initContainer.enabled }}
       initContainers:
         - name: "wait"
-          image: {{ printf "%s/%s:%s" .Values.postgresql.image.registry .Values.postgresql.image.repository .Values.postgresql.image.tag }}
+          image: {{ include "things.dbInitJob.initContainer" . }}
           command:
             - /bin/bash
           args:
@@ -36,9 +37,10 @@ spec:
             - prefix: PG_
               secretRef:
                 name: {{.Values.global.postgresql.auth.secretRef }}
+{{- end }}
       containers:
         - name: "psql"
-          image: {{ printf "%s/%s:%s" .Values.postgresql.image.registry .Values.postgresql.image.repository .Values.postgresql.image.tag }}
+          image: {{ include "things.dbInitJob.container" . }}
           command:
             - /opt/bitnami/postgresql/bin/psql
             - $(PG_CONNECTION)
@@ -66,3 +68,4 @@ spec:
         - name: config
           configMap:
             name: {{ include "things.fullname" . | printf "%s-syncd-db" |trunc 63 }}
+{{- end }}
