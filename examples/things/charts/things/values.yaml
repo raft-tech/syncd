@@ -3,7 +3,8 @@ global:
     auth:
       username: things
       database: things
-
+      connection: postgres://$(PG_USERNAME):$(PG_password)@$(PG_SERVICE)/$(PG_DATABASE)
+      secretRef: things-postgresql
 image:
   registry: docker.io
   repository: rafttech/things
@@ -49,8 +50,6 @@ postgresql:
     username:
     password:
     service:
-    connection: postgres://$(PG_USERNAME):$(PG_password)@$(PG_SERVICE)/$(PG_DATABASE)
-    secretRef: things-postgresql
   metrics:
     enabled: true
     serviceMonitor:
