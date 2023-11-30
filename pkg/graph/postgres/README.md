@@ -85,7 +85,7 @@ flowchart TD
     %%    BEGIN CHILDREN LOOP
         CHILDREN_LOOP(["loop model.children"]) --> EXTRACT_FIELD_DATA(["extract input field data for current iteration child"])
 
-        EXTRACT_FIELD_DATA --ok--> IS_RECORD_TYPE1{"check data.Type is api.DataType_RECORD"}
+        EXTRACT_FIELD_DATA -- ok --> IS_RECORD_TYPE1{"check data.Type is api.DataType_RECORD"}
         IS_RECORD_TYPE1 --true--> STORE_CHILD_RECORD(["store input data Record to be inserted"])
         EXTRACT_FIELD_DATA -. error and children remaining .-> CHILDREN_LOOP
 
