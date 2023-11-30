@@ -1,10 +1,7 @@
+
+# Postgres model.Insert
 ```mermaid
----
-title: Postgres model.Insert
----
-
 flowchart TD
-
 
     INPUT>"ctx context.Context, tx pgx.Tx, data *api.Data"]
     INPUT --> TX_NOT_NIL{"check tx param not nil"}
@@ -160,11 +157,8 @@ flowchart TD
 
 ```
 
-
+# Postgres factory.write
 ```mermaid
----
-title: Postgres Factory Write
----
 flowchart TD
     A["gRPC Stream of api.Record"] --> B{"is single, non-list Record"}
     
