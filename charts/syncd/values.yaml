@@ -1,0 +1,148 @@
+
+auth:
+  preSharedKey:
+    enabled: false
+    value: ""
+    fromExistingSecret: false
+    existingSecret:
+      name: ""
+      key: ""
+
+client:
+
+  enabled: false
+
+  name: ""
+  
+  tls:
+    enabled: false
+
+    values:
+      certificate: ""
+      privateKey: ""
+
+    fromExistingSecret: false
+    existingSecret:
+      name: ""
+
+    trustedCAs:
+      values: {}
+      fromExistingConfigMap: false
+      existingConfigMap:
+        name: ""
+        keys: []
+
+  peers: {}
+
+server:
+  enabled: false
+
+  tls:
+    enabled: false
+
+    values:
+      certificate: ""
+      privateKey: ""
+
+    fromExistingSecret: false
+    existingSecret:
+      name: ""
+      certificateKey: ""
+      privateKeyKey: ""
+
+    trustedCAs:
+      values: {}
+      fromExistingConfigMap: false
+      existingConfigMap:
+        name: ""
+        keys: []
+
+  models:
+    things:
+      filters:
+        - key: owner
+          operator: Equals
+          value: alpha
+
+  # Ignored if autoscaling is enabled
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  ingress:
+    enabled: false
+
+  resources: {}
+
+
+graph:
+
+  source:
+    postgres:
+      schema: things
+      syncTable: sync
+      sequenceTable: sync_seq
+      connection:
+        values:
+          host: ""
+          username: ""
+          password: ""
+          database: ""
+        fromPreExistingSecret: false
+        preExistingSecret:
+          name: ""
+          hostKey: "HOST"
+          usernameKey: "USERNAME"
+          passwordKey: "PASSWORD"
+          databaseKey: "DATABASE"
+
+  models:
+    things:
+      table: things.things
+      key: id
+      version: version
+      children:
+        actions:
+          table: things.actions
+          key: thing
+          isSet: true
+          sequence: sequence
+
+
+logging:
+  level: info
+  format: json
+
+annotations: {}
+
+labels: {}
+
+image:
+  repository: rafttech/syncd
+  pullPolicy: IfNotPresent
+  tag: "" # Defaults to appVersion
+
+imagePullSecrets: []
+
+podAnnotations: { }
+
+podSecurityContext: { }
+# fsGroup: 2000
+
+securityContext: { }
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+# runAsNonRoot: true
+# runAsUser: 1000
+
+nodeSelector: { }
+
+tolerations: [ ]
+
+affinity: { }
+
+nameOverride: ""
+fullnameOverride: ""

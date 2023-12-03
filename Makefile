@@ -10,6 +10,8 @@ build: generate
 clean: cluster-clean docker-clean
 	[ ! -f syncd ] || rm syncd
 	[ ! -d cmd/build ] || rm -rf cmd/build
+	[ ! -f server.crt ] || rm server.crt
+	[ ! -f server.key ] || rm server.key
 	[ ! -f things ] || rm things
 	go clean -cache -testcache
 
@@ -42,9 +44,9 @@ internal/api/syncd.pb.go internal/api/syncd_grpc.pb.go: api/syncd.proto
 	--go-grpc_out=. --go-grpc_opt=module=github.com/raft-tech/syncd --go-grpc_opt=paths=import \
 	api/syncd.proto
 
-.PHONY: tls-test-cert
-tls-test-cert:
-	openssl req -x509 -newkey rsa:1024 -keyout server.key -out server.crt -days 30 -nodes \
+
+server.crt server.key:
+	openssl req -x509 -newkey rsa:2048 -keyout server.key -out server.crt -days 30 -nodes \
 		-subj "/C=US/CN=syncd" \
 		-addext "subjectAltName=DNS:syncd"
 
@@ -65,17 +67,17 @@ postgres-stop:
 # Docker
 .PHONY: docker
 docker:
-	[ -n "$$(docker images $(SYNCD_IMAGE) --quiet)" ] || docker build -t $(SYNCD_IMAGE) .
+	docker build -t $(SYNCD_IMAGE) .
 
 .PHONY: docker-clean
 docker-clean:
-	[ -z "$$(docker images $(SYNCD_IMAGE))" ] || docker rm image $(SYNCD_IMAGE) && docker prune
+	[ -z "$$(docker images $(SYNCD_IMAGE) --quiet)" ] || docker image rm $(SYNCD_IMAGE) && docker image prune --force
 
 
 # Things (Data Generator at examples/things/)
 
 THINGS_VERSION := $(shell cat VERSION)
-THINGS_IMAGE := rafttech/syncd-things:v$(SYNCD_VERSION)
+THINGS_IMAGE := rafttech/things:v$(SYNCD_VERSION)
 
 .PHONY: things
 things:
@@ -83,24 +85,17 @@ things:
 
 .PHONY: docker-things
 docker-things:
-	[ -n "$$(docker images $(THINGS_IMAGE) --quiet)" ] || docker build -t $(THINGS_IMAGE) -f examples/things/app/Dockerfile .
+	docker build -t $(THINGS_IMAGE) -f examples/things/app/Dockerfile .
 
 .PHONY: docker-clean-things
 docker-clean-things:
-	[ -z "$$(docker images $(THINGS_IMAGE))" ] || docker rm image $(THINGS_IMAGE) && docker prune
+	[ -z "$$(docker images $(THINGS_IMAGE) --quiet)" ] || docker image rm $(THINGS_IMAGE) && docker image prune --force
 
 
 # KIND demo
 
 .PHONY: demo
-demo: cluster cluster-load demo-alpha
-
-.PHONY: demo-alpha
-demo-alpha:
-	helm upgrade --install things examples/things/charts/things --namespace alpha --create-namespace
-	kubectl -n alpha get secret/things-syncd -o name > /dev/null || kubectl -n alpha create secret generic things-syncd \
-		--from-literal=SYNCD_POSTGRESQL_CONN=$$(kubectl -n alpha get secret/things-postgresql -o template --template '{{ index .data "postgres-password"  }}' |base64 -d)
-
+demo: cluster cluster-load demo-server demo-client
 
 define CLUSTER_CONFIG
 kind: Cluster
@@ -125,6 +120,8 @@ cluster:
 	@[ -n "$$(kind get clusters |grep syncd)" ] && echo "syncd cluster already exists" || echo "$$CLUSTER_CONFIG" | kind create cluster --name syncd --config=-
 	@[ "$$(kubectl config current-context)" == "kind-syncd" ] && echo "proper context already set" || kubectl config set-context kind-syncd
 	@kubectl get ingressclass/nginx > /dev/null && echo "nginx ingress already installed" || kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+	@kubectl -n ingress-nginx wait deploy/ingress-nginx-controller --for=condition=Available=True
+	@kubectl -n ingress-nginx wait pod -l app.kubernetes.io/name=ingress-nginx -l app.kubernetes.io/component=controller --for=condition=Ready=True
 	@[ -n "$$(helm repo list |grep syncd-prometheus)" ] || helm repo add syncd-prometheus https://prometheus-community.github.io/helm-charts
 	@helm repo update syncd-prometheus
 	@helm upgrade --install syncd-monitoring syncd-prometheus/kube-prometheus-stack --version=52.0.1 --create-namespace --namespace monitoring \
@@ -147,3 +144,54 @@ cluster-clean: cluster-clean
 .PHONY: cluster-load
 cluster-load: docker docker-things
 	kind load docker-image $(SYNCD_IMAGE) $(THINGS_IMAGE) --name syncd
+	
+.PHONY: demo-server
+demo-server: server.crt server.key
+	helm upgrade --install things examples/things/charts/things --namespace alpha --create-namespace
+	kubectl -n alpha get secret/things-syncd -o name > /dev/null || kubectl -n alpha create secret generic things-syncd \
+		--from-literal=HOST=things-postgresql \
+		--from-literal=USERNAME=things \
+		--from-literal=PASSWORD=$$(kubectl -n alpha get secret/things-postgresql -o template --template '{{ index .data "password"  }}' |base64 -d) \
+		--from-literal=DATABASE=things
+	helm upgrade --install alpha charts/syncd --namespace alpha \
+		--set auth.preSharedKey.enabled=true \
+		--set auth.preSharedKey.value=mysecret \
+		--set graph.source.postgres.connection.fromPreExistingSecret=true \
+		--set graph.source.postgres.connection.preExistingSecret.name=things-syncd \
+		--set server.enabled=true \
+		--set server.tls.enabled=true \
+		--set server.tls.values.certificate="$$(cat server.crt)" \
+		--set server.tls.values.privateKey="$$(cat server.key)"
+
+.PHONY: demo-server-clean
+demo-server-clean:
+	-helm -n alpha uninstall alpha things
+	-kubectl delete ns/alpha
+
+.PHONY: demo-client
+demo-client: server.crt
+	helm upgrade --install things examples/things/charts/things --namespace bravo --create-namespace
+	kubectl -n bravo get secret/things-syncd -o name > /dev/null || kubectl -n bravo create secret generic things-syncd \
+		--from-literal=HOST=things-postgresql \
+		--from-literal=USERNAME=things \
+		--from-literal=PASSWORD=$$(kubectl -n bravo get secret/things-postgresql -o template --template '{{ index .data "password"  }}' |base64 -d) \
+		--from-literal=DATABASE=things
+	helm upgrade --install bravo charts/syncd --namespace bravo \
+		--set auth.preSharedKey.enabled=true \
+		--set auth.preSharedKey.value=mysecret \
+		--set graph.source.postgres.connection.fromPreExistingSecret=true \
+		--set graph.source.postgres.connection.preExistingSecret.name=things-syncd \
+		--set client.enabled=true \
+		--set client.tls.enabled=true \
+		--set client.tls.trustedCAs.values.syncd\\.crt="$$(cat server.crt)" \
+		--set client.peers.alpha.address=alpha-syncd-server.alpha.svc:443 \
+		--set client.peers.alpha.authority=syncd \
+		--set "client.peers.alpha.pull[0]=things" \
+		--set "client.peers.alpha.push.things.filters[0].key=owner" \
+		--set "client.peers.alpha.push.things.filters[0].operator=Equals" \
+		--set "client.peers.alpha.push.things.filters[0].value=bravo"
+
+.PHONY: demo-client-clean
+demo-client-clean:
+	-helm -n bravo uninstall bravo things
+	-kubectl delete ns/bravo

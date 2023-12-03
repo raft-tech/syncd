@@ -1,7 +1,6 @@
 
 ## Generated files
-**/charts/*.tgz
-/cmd/build/
+/cmd/build
 /server.crt
 /server.key
 /syncd
@@ -10,3 +9,11 @@
 ## JetBrains IDEs
 *.iml
 /.idea
+
+## Miscellaneous
+*.md
+*.yaml
+COPYING
+Makefile
+/charts
+/examples/things/charts

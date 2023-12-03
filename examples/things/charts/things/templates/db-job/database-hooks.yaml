@@ -1,20 +1,41 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "things.fullname" . | printf "%s-db" |trunc 63 }}
+  name: {{ include "things.fullname" . | trunc 55 | printf "%s-db-init" }}
   namespace: {{ .Release.Namespace }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
   labels:
     {{ include "things.labels" . |nindent 4 }}
 spec:
-  backoffLimit: 3
+  activeDeadlineSeconds: 300
   ttlSecondsAfterFinished: 600
   template:
     metadata:
       labels:
         {{ include "things.labels" . |nindent 8 }}
     spec:
+      initContainers:
+        - name: "wait"
+          image: {{ printf "%s/%s:%s" .Values.postgresql.image.registry .Values.postgresql.image.repository .Values.postgresql.image.tag }}
+          command:
+            - /bin/bash
+          args:
+            - "-c"
+            - "while ! pg_isready -d $(PG_CONNECTION); do echo waiting for database to be come ready; sleep 5; done"
+          env:
+            - name: PG_USERNAME
+              value: {{ .Values.global.postgresql.auth.username }}
+            - name: PG_SERVICE
+              value: {{ .Values.global.postgresql.auth.service  | default (printf "%s-postgresql" .Release.Name) }}
+            - name: PG_DATABASE
+              value: {{ .Values.global.postgresql.auth.database }}
+            - name: PG_CONNECTION
+              value: {{ .Values.global.postgresql.auth.connection }}
+          envFrom:
+            - prefix: PG_
+              secretRef:
+                name: {{.Values.global.postgresql.auth.secretRef }}
       containers:
         - name: "psql"
           image: {{ printf "%s/%s:%s" .Values.postgresql.image.registry .Values.postgresql.image.repository .Values.postgresql.image.tag }}
@@ -28,15 +49,15 @@ spec:
             - name: PG_USERNAME
               value: {{ .Values.global.postgresql.auth.username }}
             - name: PG_SERVICE
-              value: {{ .Release.Name }}-postgresql
+              value: {{ .Values.global.postgresql.auth.service  | default (printf "%s-postgresql" .Release.Name) }}
             - name: PG_DATABASE
               value: {{ .Values.global.postgresql.auth.database }}
             - name: PG_CONNECTION
-              value: postgres://$(PG_USERNAME):$(PG_password)@$(PG_SERVICE)/$(PG_DATABASE)
+              value: {{ .Values.global.postgresql.auth.connection }}
           envFrom:
             - prefix: PG_
               secretRef:
-                name: things-postgresql
+                name: {{.Values.global.postgresql.auth.secretRef }}
           volumeMounts:
             - mountPath: /config
               name: config
