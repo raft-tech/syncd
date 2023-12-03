@@ -208,6 +208,9 @@ func (p *pgxGraph) init(ctx context.Context, syncTable string, sequenceTable str
 		p.Name,
 		p.Table.KeyField,
 		p.Table.VersionField)
+	if pf := p.Table.PriorityField; pf != "" {
+		p.syncQuery += " ORDER BY model." + pf
+	}
 	p.syncSequenceQuery = fmt.Sprintf("SELECT child, sequence FROM %s WHERE model = '%s' AND peer = $1 AND id = $2", sequenceTable, p.Name)
 	p.statusStatement = fmt.Sprintf("INSERT INTO %s (peer, model, id, version, status, status_message) VALUES ($1, '%s', $2, $3, $4, $5) ON CONFLICT (peer, model, id) DO UPDATE SET version = EXCLUDED.version, status = EXCLUDED.status, status_message = EXCLUDED.status_message",
 		syncTable,
