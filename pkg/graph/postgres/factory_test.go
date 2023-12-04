@@ -106,9 +106,10 @@ var _ = Describe("Factory", func() {
 			fixture, err := factory.Build(ctx, &graph.Model{
 				Name: "artists",
 				Table: graph.Table{
-					Name:         "syncd.artists",
-					KeyField:     "id",
-					VersionField: "version",
+					Name:          "syncd.artists",
+					KeyField:      "id",
+					VersionField:  "version",
+					PriorityField: "name",
 				},
 			})
 			Expect(fixture, err).ShouldNot(BeNil())
@@ -120,7 +121,7 @@ var _ = Describe("Factory", func() {
 
 			By("generating a sync query")
 			Expect(artists.syncQuery).To(Equal(
-				"SELECT model.id, model.version FROM syncd.artists AS model LEFT JOIN (SELECT id, version FROM syncd.sync WHERE peer = $1 AND model = 'artists') AS sync ON sync.id = model.id WHERE sync.version IS NULL or sync.version != model.version",
+				"SELECT model.id, model.version FROM syncd.artists AS model LEFT JOIN (SELECT id, version FROM syncd.sync WHERE peer = $1 AND model = 'artists') AS sync ON sync.id = model.id WHERE sync.version IS NULL or sync.version != model.version ORDER BY model.name",
 			))
 
 			By("describing the table")
@@ -165,7 +166,7 @@ var _ = Describe("Factory", func() {
 			}))
 		})
 
-		It("it publishes", func(ctx context.Context) {
+		It("publishes", func(ctx context.Context) {
 
 			ctx = log.NewContext(ctx, logger)
 			peer := "postgres_factory"
@@ -187,7 +188,21 @@ var _ = Describe("Factory", func() {
 				}
 			}
 			Expect(data).To(HaveLen(4))
-			Expect(data).To(ContainElements(
+			Expect(data).To(HaveExactElements(
+				And(
+					HaveField("Type", Equal(api.DataType_RECORD)),
+					HaveField("IsList", BeFalse()),
+					HaveField("Records", And(
+						HaveLen(1),
+						ContainElement(&api.Record{
+							Fields: map[string]*api.Data{
+								"id":      api.StringData{}.From("88a6845b-e286-49a0-aa09-d89309d12d33"),
+								"name":    api.StringData{}.From("George Harrison"),
+								"version": api.StringData{}.From("1"),
+							},
+						}),
+					)),
+				),
 				And(
 					HaveField("Type", Equal(api.DataType_RECORD)),
 					HaveField("IsList", BeFalse()),
@@ -225,20 +240,6 @@ var _ = Describe("Factory", func() {
 							Fields: map[string]*api.Data{
 								"id":      api.StringData{}.From("57ecbe75-ba4c-4094-acca-d066b6c6d058"),
 								"name":    api.StringData{}.From("Ringo Starr"),
-								"version": api.StringData{}.From("1"),
-							},
-						}),
-					)),
-				),
-				And(
-					HaveField("Type", Equal(api.DataType_RECORD)),
-					HaveField("IsList", BeFalse()),
-					HaveField("Records", And(
-						HaveLen(1),
-						ContainElement(&api.Record{
-							Fields: map[string]*api.Data{
-								"id":      api.StringData{}.From("88a6845b-e286-49a0-aa09-d89309d12d33"),
-								"name":    api.StringData{}.From("George Harrison"),
 								"version": api.StringData{}.From("1"),
 							},
 						}),
@@ -370,9 +371,10 @@ var _ = Describe("Factory", func() {
 			fixture, err := factory.Build(ctx, &graph.Model{
 				Name: "performers",
 				Table: graph.Table{
-					Name:         "syncd.performers",
-					KeyField:     "id",
-					VersionField: "version",
+					Name:          "syncd.performers",
+					KeyField:      "id",
+					PriorityField: "name",
+					VersionField:  "version",
 				},
 				Children: []graph.Model{
 					{
@@ -424,6 +426,11 @@ var _ = Describe("Factory", func() {
 				},
 			))
 
+			By("generating a sync query")
+			Expect(performers.syncQuery).To(Equal(
+				"SELECT model.id, model.version FROM syncd.performers AS model LEFT JOIN (SELECT id, version FROM syncd.sync WHERE peer = $1 AND model = 'performers') AS sync ON sync.id = model.id WHERE sync.version IS NULL or sync.version != model.version ORDER BY model.name",
+			))
+
 			By("generating model statements")
 			Expect(performers.model.readQuery).To(Equal("SELECT name, label, version FROM syncd.performers WHERE id = $1 FOR SHARE"))
 			Expect(performers.model.lockQuery).To(Equal("SELECT version FROM syncd.performers WHERE id = $1 FOR UPDATE"))
@@ -463,11 +470,6 @@ var _ = Describe("Factory", func() {
 
 			Expect(performers.children).To(HaveKey("performances"))
 			performances := performers.children["performances"]
-
-			By("generating a sync query")
-			Expect(performers.syncQuery).To(Equal(
-				"SELECT model.id, model.version FROM syncd.performers AS model LEFT JOIN (SELECT id, version FROM syncd.sync WHERE peer = $1 AND model = 'performers') AS sync ON sync.id = model.id WHERE sync.version IS NULL or sync.version != model.version",
-			))
 
 			By("describing the columns")
 			Expect(performances.columns).To(ContainElements(
