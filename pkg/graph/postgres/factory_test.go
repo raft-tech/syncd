@@ -146,7 +146,7 @@ var _ = Describe("Factory", func() {
 			Expect(artists.model.readQuery).To(Equal("SELECT name, version FROM syncd.artists WHERE id = $1 FOR SHARE"))
 			Expect(artists.model.lockQuery).To(Equal("SELECT version FROM syncd.artists WHERE id = $1 FOR UPDATE"))
 			//Expect(artists.model.updateStatement).To(Equal("UPDATE syncd.artists SET name = $2, version = $3 WHERE id = $1"))
-			Expect(artists.model.insertStatement).To(Equal("INSERT INTO syncd.artists (id, name, version) VALUES ($1, $2, $3)"))
+			Expect(artists.model.insertStatement).To(Equal("INSERT INTO syncd.artists (id, name, version) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, version = EXCLUDED.version"))
 			Expect(artists.model.deleteStatement).To(BeEmpty())
 		})
 
@@ -428,7 +428,7 @@ var _ = Describe("Factory", func() {
 			Expect(performers.model.readQuery).To(Equal("SELECT name, label, version FROM syncd.performers WHERE id = $1 FOR SHARE"))
 			Expect(performers.model.lockQuery).To(Equal("SELECT version FROM syncd.performers WHERE id = $1 FOR UPDATE"))
 			//Expect(performers.model.updateStatement).To(Equal("UPDATE syncd.performers SET name = $2, label = $3, version = $4 WHERE id = $1"))
-			Expect(performers.model.insertStatement).To(Equal("INSERT INTO syncd.performers (id, name, label, version) VALUES ($1, $2, $3, $4)"))
+			Expect(performers.model.insertStatement).To(Equal("INSERT INTO syncd.performers (id, name, label, version) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, label = EXCLUDED.label, version = EXCLUDED.version"))
 			Expect(performers.model.deleteStatement).To(BeEmpty())
 		})
 
@@ -492,7 +492,7 @@ var _ = Describe("Factory", func() {
 			By("generating a read query")
 			Expect(performances.readQuery).To(Equal("SELECT sequence, song FROM syncd.performances WHERE performer = $1"))
 			Expect(performances.lockQuery).To(BeEmpty())
-			Expect(performances.insertStatement).To(Equal("INSERT INTO syncd.performances (performer, sequence, song) VALUES ($1, $2, $3)"))
+			Expect(performances.insertStatement).To(Equal("INSERT INTO syncd.performances (performer, sequence, song) VALUES ($1, $2, $3) ON CONFLICT (performer, sequence) DO UPDATE SET song = EXCLUDED.song"))
 			Expect(performances.deleteStatement).To(BeEmpty())
 			//Expect(performances.updateStatement).To(BeEmpty())
 		})
