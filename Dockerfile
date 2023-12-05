@@ -1,11 +1,11 @@
-FROM golang:1.20 as BUILD
+FROM golang:1.20@sha256:bdd178660145acd8edcc076bec4c92888988a6556de7b3363a30cdea87b7086b as BUILD
 COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
 COPY . /src
 RUN CGO_ENABLED=0 go build -o /syncd /src/main.go
 
-FROM golang:1.20 AS gRPC
+FROM golang:1.20@sha256:bdd178660145acd8edcc076bec4c92888988a6556de7b3363a30cdea87b7086b AS gRPC
 ARG PROTOC_VERSION=23.4
 RUN apt-get update && apt-get install --no-install-recommends -y \
     unzip=6.0-26+deb11u1 \

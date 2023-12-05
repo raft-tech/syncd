@@ -1,4 +1,4 @@
-FROM golang:1.20 as BUILD
+FROM golang:1.20@sha256:bdd178660145acd8edcc076bec4c92888988a6556de7b3363a30cdea87b7086b as BUILD
 COPY go.mod go.sum /src/
 WORKDIR /src
 RUN go mod download
