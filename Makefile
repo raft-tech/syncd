@@ -48,7 +48,7 @@ internal/api/syncd.pb.go internal/api/syncd_grpc.pb.go: api/syncd.proto
 server.crt server.key:
 	openssl req -x509 -newkey rsa:2048 -keyout server.key -out server.crt -days 30 -nodes \
 		-subj "/C=US/CN=syncd" \
-		-addext "subjectAltName=DNS:syncd"
+		-extensions "subjectAltName=DNS:syncd"
 
 # PostgreSQL Instances
 
